@@ -1,5 +1,6 @@
 import { Bot } from "grammy";
 import { clearHistory } from "../openrouter";
+import logger from "../logger";
 
 export function registerCommands(bot: Bot): void {
   bot.command("start", (ctx) =>
@@ -12,6 +13,7 @@ export function registerCommands(bot: Bot): void {
 
   bot.command("clear", (ctx) => {
     clearHistory(ctx.chat.id);
+    logger.info({ chatId: ctx.chat.id }, "History cleared");
     return ctx.reply("История чата очищена.");
   });
 }
