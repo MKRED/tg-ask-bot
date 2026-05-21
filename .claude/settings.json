@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(yarn *)",
+      "Bash(taskkill *)",
+      "Bash(Get-Process *)",
+      "Bash(Stop-Process *)"
+    ]
+  }
+}
