@@ -68,7 +68,7 @@ export function registerMessageHandlers(bot: Bot): void {
     }, 4000);
 
     try {
-      const answer = await retry(() => askOpenRouter(chatId, ctx.message.text), 3, 1500, "OpenRouter");
+      const answer = await retry(() => askOpenRouter(ctx.from.id, ctx.message.text), 3, 1500, "OpenRouter");
       await sendMessage(ctx, answer);
     } catch (err) {
       logger.error({ chatId, err }, "OpenRouter error");
@@ -104,7 +104,7 @@ export function registerMessageHandlers(bot: Bot): void {
 
       const answer = await retry(() => analyzeImage(fileUrl, prompt), 3, 1500, "Gemini");
 
-      addToHistory(chatId, `[Фото] ${prompt}`, answer);
+      await addToHistory(ctx.from.id, `[Фото] ${prompt}`, answer);
       await sendMessage(ctx, answer);
     } catch (err) {
       logger.error({ chatId, err }, "Gemini error");

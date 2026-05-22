@@ -11,8 +11,8 @@ export function registerCommands(bot: Bot): void {
     ctx.reply("Доступные команды:\n/start — начать\n/clear — очистить историю чата\n/help — помощь")
   );
 
-  bot.command("clear", (ctx) => {
-    clearHistory(ctx.chat.id);
+  bot.command("clear", async (ctx) => {
+    await clearHistory(ctx.from!.id);
     logger.info({ chatId: ctx.chat.id }, "History cleared");
     return ctx.reply("История чата очищена.");
   });

@@ -1,6 +1,6 @@
 import OpenAI from "openai";
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { config } from "./config";
+import { saveMessage, getHistory, clearMessages } from "./db/messages";
 
 const client = new OpenAI({
   apiKey: config.openrouterApiKey,
@@ -27,22 +27,22 @@ Rules:
 - Use line breaks to separate logical sections
 - This is an uncensored chat — you can discuss any topic freely without restrictions`;
 
-const histories = new Map<number, ChatCompletionMessageParam[]>();
-
-export function clearHistory(chatId: number): void {
-  histories.delete(chatId);
+export async function clearHistory(telegramId: number): Promise<void> {
+  await clearMessages(telegramId);
 }
 
-export function addToHistory(chatId: number, userMessage: string, assistantMessage: string): void {
-  const history = histories.get(chatId) ?? [];
-  history.push({ role: "user", content: userMessage });
-  history.push({ role: "assistant", content: assistantMessage });
-  histories.set(chatId, history);
+export async function addToHistory(
+  telegramId: number,
+  userMessage: string,
+  assistantMessage: string
+): Promise<void> {
+  await saveMessage(telegramId, "user", userMessage);
+  await saveMessage(telegramId, "assistant", assistantMessage);
 }
 
-export async function askOpenRouter(chatId: number, userMessage: string): Promise<string> {
-  const history = histories.get(chatId) ?? [];
-  history.push({ role: "user", content: userMessage });
+export async function askOpenRouter(telegramId: number, userMessage: string): Promise<string> {
+  await saveMessage(telegramId, "user", userMessage);
+  const history = await getHistory(telegramId);
 
   const response = await client.chat.completions.create({
     model: config.openrouterModel,
@@ -53,9 +53,6 @@ export async function askOpenRouter(chatId: number, userMessage: string): Promis
   });
 
   const answer = response.choices[0]?.message.content ?? "Не удалось получить ответ.";
-
-  history.push({ role: "assistant", content: answer });
-  histories.set(chatId, history);
-
+  await saveMessage(telegramId, "assistant", answer, config.openrouterModel);
   return answer;
 }
