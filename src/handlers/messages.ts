@@ -1,5 +1,5 @@
 import { Bot } from "grammy";
-import { analyzeImage } from "../gemini";
+import { analyzeImage, GeminiBlockedError } from "../gemini";
 import { addToHistory, askOpenRouter } from "../openrouter";
 import { config } from "../config";
 import logger from "../logger";
@@ -21,10 +21,27 @@ const BUSY_REPLIES = [
   "Обрабатываю. Пока жди — или напиши всё одним сообщением в следующий раз.",
 ];
 
+const BLOCKED_REPLIES = [
+  "Не, это я не смотрю. Глаза целее будут.",
+  "Ой. Я такое не анализирую. Скинь котика.",
+  "Цензура? Нет. Просто у меня есть вкус.",
+  "Даже мне стало неловко. А я нейросеть.",
+  "Это за рамками моей должностной инструкции.",
+  "Google сказал 'нельзя'. Я согласен.",
+  "Картинку вижу. Анализировать отказываюсь.",
+  "Нет-нет-нет. Я интеллигентный бот.",
+  "Это не баг, это фича: у меня есть достоинство.",
+  "Передай привет своим фантазиям — я туда не хожу.",
+];
+
 const processing = new Set<number>();
 
 function randomBusyReply(): string {
   return BUSY_REPLIES[Math.floor(Math.random() * BUSY_REPLIES.length)];
+}
+
+function randomBlockedReply(): string {
+  return BLOCKED_REPLIES[Math.floor(Math.random() * BLOCKED_REPLIES.length)];
 }
 
 function splitMessage(text: string): string[] {
@@ -60,9 +77,9 @@ export function registerMessageHandlers(bot: Bot): void {
       return;
     }
 
-    await upsertUser(ctx.from);
+    upsertUser(ctx.from).catch((err) => logger.error({ chatId, err }, "upsertUser failed"));
     processing.add(chatId);
-    await ctx.api.sendChatAction(chatId, "typing");
+    ctx.api.sendChatAction(chatId, "typing").catch(() => {});
     const typingInterval = setInterval(() => {
       ctx.api.sendChatAction(chatId, "typing").catch(() => {});
     }, 4000);
@@ -72,7 +89,7 @@ export function registerMessageHandlers(bot: Bot): void {
       await sendMessage(ctx, answer);
     } catch (err) {
       logger.error({ chatId, err }, "OpenRouter error");
-      await ctx.reply("Произошла ошибка при обращении к AI.");
+      await ctx.reply("Произошла ошибка при обращении к AI.").catch(() => {});
       throw err;
     } finally {
       clearInterval(typingInterval);
@@ -90,9 +107,9 @@ export function registerMessageHandlers(bot: Bot): void {
       return;
     }
 
-    await upsertUser(ctx.from);
+    upsertUser(ctx.from).catch((err) => logger.error({ chatId, err }, "upsertUser failed"));
     processing.add(chatId);
-    await ctx.api.sendChatAction(chatId, "typing");
+    ctx.api.sendChatAction(chatId, "typing").catch(() => {});
     const typingInterval = setInterval(() => {
       ctx.api.sendChatAction(chatId, "typing").catch(() => {});
     }, 4000);
@@ -102,13 +119,24 @@ export function registerMessageHandlers(bot: Bot): void {
       const file = await retry(() => ctx.api.getFile(photo.file_id), 3, 1500, "getFile");
       const fileUrl = `https://api.telegram.org/file/bot${config.botToken}/${file.file_path}`;
 
-      const answer = await retry(() => analyzeImage(fileUrl, prompt), 3, 1500, "Gemini");
+      const answer = await retry(
+        () => analyzeImage(fileUrl, prompt),
+        3, 1500, "Gemini",
+        (err) => !(err instanceof GeminiBlockedError)
+      );
 
-      await addToHistory(ctx.from.id, `[Фото] ${prompt}`, answer);
       await sendMessage(ctx, answer);
+      addToHistory(ctx.from.id, `[Фото] ${prompt}`, answer).catch((err) =>
+        logger.error({ chatId, err }, "addToHistory failed")
+      );
     } catch (err) {
+      if (err instanceof GeminiBlockedError) {
+        logger.info({ chatId, blockReason: err.blockReason }, "Gemini blocked image");
+        await ctx.reply(randomBlockedReply(), { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+        return;
+      }
       logger.error({ chatId, err }, "Gemini error");
-      await ctx.reply("Произошла ошибка при анализе изображения.");
+      await ctx.reply("Произошла ошибка при анализе изображения.").catch(() => {});
       throw err;
     } finally {
       clearInterval(typingInterval);

@@ -2,6 +2,13 @@ import https from "https";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { config } from "./config";
 
+export class GeminiBlockedError extends Error {
+  constructor(public readonly blockReason: string) {
+    super(`Gemini blocked: ${blockReason}`);
+    this.name = "GeminiBlockedError";
+  }
+}
+
 const GEMINI_MODEL = "gemini-2.5-flash";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${config.geminiApiKey}`;
 
@@ -83,8 +90,11 @@ export async function analyzeImage(fileUrl: string, prompt: string): Promise<str
   };
 
   const data = await httpsPost(API_URL, body, agent);
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
+  const blockReason = data?.promptFeedback?.blockReason;
+  if (blockReason) throw new GeminiBlockedError(blockReason);
+
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error(`Gemini error: ${JSON.stringify(data)}`);
   return text;
 }

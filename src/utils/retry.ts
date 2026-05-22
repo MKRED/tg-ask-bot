@@ -6,7 +6,8 @@ export async function retry<T>(
   fn: () => Promise<T>,
   attempts = 3,
   delayMs = 1500,
-  label = "operation"
+  label = "operation",
+  shouldRetry: (err: unknown) => boolean = () => true
 ): Promise<T> {
   let lastErr: unknown;
   for (let i = 1; i <= attempts; i++) {
@@ -14,9 +15,11 @@ export async function retry<T>(
       return await fn();
     } catch (err) {
       lastErr = err;
-      if (i < attempts) {
+      if (i < attempts && shouldRetry(err)) {
         logger.warn({ err, attempt: i, label }, `Attempt ${i} failed, retrying in ${delayMs * i}ms`);
         await sleep(delayMs * i);
+      } else {
+        break;
       }
     }
   }
