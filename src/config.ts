@@ -12,4 +12,5 @@ export const config = {
   openrouterApiKey: requireEnv("OPENROUTER_API_KEY"),
   openrouterModel: process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-v4-flash",
   geminiApiKey: requireEnv("GEMINI_API_KEY"),
+  databaseUrl: requireEnv("DATABASE_URL"),
 };
