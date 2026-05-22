@@ -11,8 +11,8 @@ const SYSTEM_INSTRUCTION = `Format responses using ONLY these supported Telegram
 - <code>code</code> for inline code
 - <pre>code block</pre> for multi-line code
 
-FORBIDDEN — never use: <h1>-<h6>, <hr>, <br>, <p>, <div>, <span>, or Markdown (**, __, \`, #, etc.).
-Use plain newlines to separate sections. Use <b> instead of headings.`;
+FORBIDDEN — never use: <h1>-<h6>, <ul>, <ol>, <li>, <hr>, <br>, <p>, <div>, <span>, or Markdown (**, __, \`, #, etc.).
+Use plain newlines to separate sections. Use <b> instead of headings. Use "- " for lists instead of <ul><li>.`;
 
 function httpsPost(url: string, body: object, agent?: HttpsProxyAgent<string>): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -68,6 +68,12 @@ export async function analyzeImage(fileUrl: string, prompt: string): Promise<str
 
   const body = {
     system_instruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+    safetySettings: [
+      { category: "HARM_CATEGORY_HARASSMENT",        threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_HATE_SPEECH",       threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+    ],
     contents: [{
       parts: [
         { inline_data: { mime_type: "image/jpeg", data: buffer.toString("base64") } },

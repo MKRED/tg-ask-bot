@@ -8,6 +8,20 @@
       "when": 1779428457325,
       "tag": "0000_chubby_fantastic_four",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1779430074577,
+      "tag": "0001_rainy_lizard",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779430647991,
+      "tag": "0002_windy_morph",
+      "breakpoints": true
     }
   ]
 }

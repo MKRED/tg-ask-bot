@@ -7,6 +7,8 @@ export const users = pgTable("users", {
   firstName: varchar("first_name", { length: 255 }),
   lastName: varchar("last_name", { length: 255 }),
   isBlocked: boolean("is_blocked").notNull().default(false),
+  profile: text("profile"),
+  lastActiveAt: timestamp("last_active_at").notNull().defaultNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
