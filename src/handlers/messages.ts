@@ -80,8 +80,7 @@ export function registerMessageHandlers(bot: Bot): void {
     try {
       const answer = await retry(() => askOpenRouter(ctx.from.id, ctx.message.text), 3, 1500, "OpenRouter");
       await sendMessage(ctx, answer);
-      const userMessage = ctx.message.text;
-      extractFacts(ctx.from.id, userMessage).then(async (count) => {
+      extractFacts(ctx.from.id).then(async (count) => {
         if (count > 0) {
           const note = await ctx.reply("✨ Запомнил кое-что о тебе");
           setTimeout(() => ctx.api.deleteMessage(chatId, note.message_id).catch(() => {}), 4000);
@@ -143,7 +142,7 @@ export function registerMessageHandlers(bot: Bot): void {
 
       const answer = await retry(() => askOpenRouter(ctx.from.id, userMessage), 3, 1500, "OpenRouter");
       await sendMessage(ctx, answer);
-      extractFacts(ctx.from.id, userMessage).then(async (count) => {
+      extractFacts(ctx.from.id).then(async (count) => {
         if (count > 0) {
           const note = await ctx.reply("✨ Запомнил кое-что о тебе");
           setTimeout(() => ctx.api.deleteMessage(chatId, note.message_id).catch(() => {}), 4000);

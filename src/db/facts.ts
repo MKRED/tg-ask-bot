@@ -50,6 +50,10 @@ export async function upsertUserFact(
     });
 }
 
+export async function deleteUserFact(telegramId: number, key: string): Promise<void> {
+  await db.delete(userFacts).where(and(eq(userFacts.userId, telegramId), eq(userFacts.key, key)));
+}
+
 export async function deleteUserFacts(telegramId: number): Promise<void> {
   await db.delete(userFacts).where(eq(userFacts.userId, telegramId));
 }

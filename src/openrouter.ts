@@ -70,7 +70,12 @@ export async function askOpenRouter(telegramId: number, userMessage: string): Pr
   const usage = response.usage as any;
   logger.info({ model: config.openrouterModel, durationMs, promptTokens: usage?.prompt_tokens, completionTokens: usage?.completion_tokens, reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens, totalTokens: usage?.total_tokens }, "OpenRouter request completed");
 
-  const answer = response.choices[0]?.message.content ?? "Не удалось получить ответ.";
+  const content = response.choices[0]?.message.content;
+  if (!content) {
+    logger.warn({ telegramId, model: config.openrouterModel, choices: JSON.stringify(response.choices) }, "OpenRouter returned empty content, will retry");
+    throw new Error("OpenRouter returned empty content");
+  }
+  const answer = content;
   await saveMessage(telegramId, "assistant", answer, config.openrouterModel);
   return answer;
 }
