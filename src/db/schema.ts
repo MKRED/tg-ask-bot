@@ -1,4 +1,4 @@
-import { pgTable, serial, bigint, varchar, text, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, bigint, varchar, text, timestamp, boolean, integer } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -7,6 +7,7 @@ export const users = pgTable("users", {
   firstName: varchar("first_name", { length: 255 }),
   lastName: varchar("last_name", { length: 255 }),
   isBlocked: boolean("is_blocked").notNull().default(false),
+  requestCount: integer("request_count").notNull().default(0),
   profile: text("profile"),
   lastActiveAt: timestamp("last_active_at").notNull().defaultNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),

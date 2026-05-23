@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "./index";
 import { users, type User } from "./schema";
 
@@ -24,6 +24,7 @@ export async function upsertUser(from: TelegramFrom): Promise<User> {
         username: from.username ?? null,
         firstName: from.first_name ?? null,
         lastName: from.last_name ?? null,
+        requestCount: sql`${users.requestCount} + 1`,
         lastActiveAt: new Date(),
         updatedAt: new Date(),
       },
