@@ -47,13 +47,16 @@ function splitMessage(text: string): string[] {
 }
 
 async function sendMessage(ctx: any, text: string) {
-  for (const part of splitMessage(text)) {
+  const parts = splitMessage(text);
+  const t0 = Date.now();
+  for (const part of parts) {
     try {
       await ctx.reply(part, { parse_mode: "HTML" });
     } catch {
       await ctx.reply(part);
     }
   }
+  logger.info({ chatId: ctx.chat.id, durationMs: Date.now() - t0, parts: parts.length }, "Telegram sendMessage completed");
 }
 
 export function registerMessageHandlers(bot: Bot): void {

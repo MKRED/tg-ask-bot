@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { config } from "./config";
 import { saveMessage, getHistory, clearMessages } from "./db/messages";
+import logger from "./logger";
 
 const client = new OpenAI({
   apiKey: config.openrouterApiKey,
@@ -46,13 +47,19 @@ export async function askOpenRouter(telegramId: number, userMessage: string): Pr
   await saveMessage(telegramId, "user", userMessage);
   const history = await getHistory(telegramId);
 
+  const t0 = Date.now();
   const response = await client.chat.completions.create({
     model: config.openrouterModel,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       ...history,
     ],
-  });
+    reasoning: { effort: "high" },
+  } as any);
+  const durationMs = Date.now() - t0;
+
+  const usage = response.usage as any;
+  logger.info({ model: config.openrouterModel, durationMs, promptTokens: usage?.prompt_tokens, completionTokens: usage?.completion_tokens, reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens, totalTokens: usage?.total_tokens }, "OpenRouter request completed");
 
   const answer = response.choices[0]?.message.content ?? "Не удалось получить ответ.";
   await saveMessage(telegramId, "assistant", answer, config.openrouterModel);
