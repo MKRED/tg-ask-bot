@@ -1,6 +1,7 @@
 import { Bot } from "grammy";
 import { analyzeImage, GeminiBlockedError } from "../gemini";
 import { askOpenRouter } from "../openrouter";
+import { extractFacts } from "../extractFacts";
 import { config } from "../config";
 import logger from "../logger";
 import { retry } from "../utils/retry";
@@ -79,6 +80,13 @@ export function registerMessageHandlers(bot: Bot): void {
     try {
       const answer = await retry(() => askOpenRouter(ctx.from.id, ctx.message.text), 3, 1500, "OpenRouter");
       await sendMessage(ctx, answer);
+      const userMessage = ctx.message.text;
+      extractFacts(ctx.from.id, userMessage).then(async (count) => {
+        if (count > 0) {
+          const note = await ctx.reply("✨ Запомнил кое-что о тебе");
+          setTimeout(() => ctx.api.deleteMessage(chatId, note.message_id).catch(() => {}), 4000);
+        }
+      }).catch((err) => logger.warn({ chatId, err }, "Fact extraction failed"));
     } catch (err) {
       logger.error({ chatId, err }, "OpenRouter error");
       await ctx.reply("Произошла ошибка при обращении к AI.").catch(() => {});
@@ -135,6 +143,12 @@ export function registerMessageHandlers(bot: Bot): void {
 
       const answer = await retry(() => askOpenRouter(ctx.from.id, userMessage), 3, 1500, "OpenRouter");
       await sendMessage(ctx, answer);
+      extractFacts(ctx.from.id, userMessage).then(async (count) => {
+        if (count > 0) {
+          const note = await ctx.reply("✨ Запомнил кое-что о тебе");
+          setTimeout(() => ctx.api.deleteMessage(chatId, note.message_id).catch(() => {}), 4000);
+        }
+      }).catch((err) => logger.warn({ chatId, err }, "Fact extraction failed"));
     } catch (err) {
       logger.error({ chatId, err }, "Photo handler error");
       await ctx.reply("Произошла ошибка при обработке запроса.").catch(() => {});

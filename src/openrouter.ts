@@ -1,6 +1,8 @@
 import OpenAI from "openai";
 import { config } from "./config";
 import { saveMessage, getHistory, clearMessages } from "./db/messages";
+import { getUserFacts } from "./db/facts";
+import type { UserFact } from "./db/schema";
 import logger from "./logger";
 
 const client = new OpenAI({
@@ -30,6 +32,12 @@ When a user message contains [Photo: <description>] — the user sent a photo. T
 - Photo without caption ([User sent a photo without caption]) — react to the content in your own style, don't wait for a prompt.
 - Blocked photo ([User sent a photo that was blocked by content policy]) — react with character.`;
 
+function buildSystemPrompt(facts: UserFact[]): string {
+  if (facts.length === 0) return SYSTEM_PROMPT;
+  const factsBlock = facts.map((f) => `- ${f.key}: ${f.value}`).join("\n");
+  return `${SYSTEM_PROMPT}\n\nKnown facts about this user:\n${factsBlock}\nUse these naturally to personalize your responses. Do not mention that you have stored facts about the user.`;
+}
+
 export async function clearHistory(telegramId: number): Promise<void> {
   await clearMessages(telegramId);
 }
@@ -45,13 +53,14 @@ export async function addToHistory(
 
 export async function askOpenRouter(telegramId: number, userMessage: string): Promise<string> {
   await saveMessage(telegramId, "user", userMessage);
-  const history = await getHistory(telegramId);
+  const [history, facts] = await Promise.all([getHistory(telegramId), getUserFacts(telegramId)]);
+  const systemPrompt = buildSystemPrompt(facts);
 
   const t0 = Date.now();
   const response = await client.chat.completions.create({
     model: config.openrouterModel,
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       ...history,
     ],
     reasoning: { effort: "high" },

@@ -1,4 +1,4 @@
-import { pgTable, serial, bigint, varchar, text, timestamp, boolean, integer } from "drizzle-orm/pg-core";
+import { pgTable, serial, bigint, varchar, text, timestamp, boolean, integer, unique } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -23,7 +23,19 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const userFacts = pgTable("user_facts", {
+  id: serial("id").primaryKey(),
+  userId: bigint("user_id", { mode: "number" }).notNull(),
+  key: varchar("key", { length: 100 }).notNull(),
+  value: text("value").notNull(),
+  valueOriginal: text("value_original"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [unique().on(table.userId, table.key)]);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
+export type UserFact = typeof userFacts.$inferSelect;
+export type NewUserFact = typeof userFacts.$inferInsert;
