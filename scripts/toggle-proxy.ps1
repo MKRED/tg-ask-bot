@@ -12,3 +12,6 @@ if ($current) {
 }
 
 Write-Host "Restart terminal for changes to take effect." -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Press any key to close..." -ForegroundColor Gray
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")

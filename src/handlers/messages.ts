@@ -117,12 +117,12 @@ export function registerMessageHandlers(bot: Bot): void {
         );
         const caption = ctx.message.caption;
         userMessage = caption
-          ? `${caption}\n\n[На фото: ${description}]`
-          : `[Пользователь отправил фото без подписи]\n\n[На фото: ${description}]`;
+          ? `${caption}\n\n[Photo: ${description}]`
+          : `[User sent a photo without caption]\n\n[Photo: ${description}]`;
       } catch (err) {
         if (err instanceof GeminiBlockedError) {
           logger.info({ chatId, blockReason: err.blockReason }, "Gemini blocked image");
-          userMessage = "[Пользователь отправил фото, которое было заблокировано по политике контента]";
+          userMessage = "[User sent a photo that was blocked by content policy]";
         } else {
           logger.error({ chatId, err }, "Gemini error");
           await ctx.reply("Не удалось распознать изображение. Попробуй ещё раз.").catch(() => {});
