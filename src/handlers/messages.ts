@@ -1,6 +1,6 @@
 import { Bot } from "grammy";
 import { analyzeImage, GeminiBlockedError } from "../gemini";
-import { addToHistory, askOpenRouter } from "../openrouter";
+import { askOpenRouter } from "../openrouter";
 import { config } from "../config";
 import logger from "../logger";
 import { retry } from "../utils/retry";
@@ -21,18 +21,6 @@ const BUSY_REPLIES = [
   "Обрабатываю. Пока жди — или напиши всё одним сообщением в следующий раз.",
 ];
 
-const BLOCKED_REPLIES = [
-  "Не, это я не смотрю. Глаза целее будут.",
-  "Ой. Я такое не анализирую. Скинь котика.",
-  "Цензура? Нет. Просто у меня есть вкус.",
-  "Даже мне стало неловко. А я нейросеть.",
-  "Это за рамками моей должностной инструкции.",
-  "Google сказал 'нельзя'. Я согласен.",
-  "Картинку вижу. Анализировать отказываюсь.",
-  "Нет-нет-нет. Я интеллигентный бот.",
-  "Это не баг, это фича: у меня есть достоинство.",
-  "Передай привет своим фантазиям — я туда не хожу.",
-];
 
 const processing = new Set<number>();
 
@@ -40,9 +28,6 @@ function randomBusyReply(): string {
   return BUSY_REPLIES[Math.floor(Math.random() * BUSY_REPLIES.length)];
 }
 
-function randomBlockedReply(): string {
-  return BLOCKED_REPLIES[Math.floor(Math.random() * BLOCKED_REPLIES.length)];
-}
 
 function splitMessage(text: string): string[] {
   if (text.length <= MAX_MSG_LENGTH) return [text];
@@ -63,7 +48,11 @@ function splitMessage(text: string): string[] {
 
 async function sendMessage(ctx: any, text: string) {
   for (const part of splitMessage(text)) {
-    await ctx.reply(part, { parse_mode: "HTML" });
+    try {
+      await ctx.reply(part, { parse_mode: "HTML" });
+    } catch {
+      await ctx.reply(part);
+    }
   }
 }
 
@@ -99,7 +88,6 @@ export function registerMessageHandlers(bot: Bot): void {
 
   bot.on("message:photo", async (ctx) => {
     const chatId = ctx.chat.id;
-    const prompt = ctx.message.caption ?? "Опиши подробно что изображено на картинке.";
     logger.info({ chatId }, "Photo message received");
 
     if (processing.has(chatId)) {
@@ -119,24 +107,34 @@ export function registerMessageHandlers(bot: Bot): void {
       const file = await retry(() => ctx.api.getFile(photo.file_id), 3, 1500, "getFile");
       const fileUrl = `https://api.telegram.org/file/bot${config.botToken}/${file.file_path}`;
 
-      const answer = await retry(
-        () => analyzeImage(fileUrl, prompt),
-        3, 1500, "Gemini",
-        (err) => !(err instanceof GeminiBlockedError)
-      );
+      let userMessage: string;
 
-      await sendMessage(ctx, answer);
-      addToHistory(ctx.from.id, `[Фото] ${prompt}`, answer).catch((err) =>
-        logger.error({ chatId, err }, "addToHistory failed")
-      );
-    } catch (err) {
-      if (err instanceof GeminiBlockedError) {
-        logger.info({ chatId, blockReason: err.blockReason }, "Gemini blocked image");
-        await ctx.reply(randomBlockedReply(), { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
-        return;
+      try {
+        const description = await retry(
+          () => analyzeImage(fileUrl),
+          3, 1500, "Gemini",
+          (err) => !(err instanceof GeminiBlockedError)
+        );
+        const caption = ctx.message.caption;
+        userMessage = caption
+          ? `${caption}\n\n[На фото: ${description}]`
+          : `[Пользователь отправил фото без подписи]\n\n[На фото: ${description}]`;
+      } catch (err) {
+        if (err instanceof GeminiBlockedError) {
+          logger.info({ chatId, blockReason: err.blockReason }, "Gemini blocked image");
+          userMessage = "[Пользователь отправил фото, которое было заблокировано по политике контента]";
+        } else {
+          logger.error({ chatId, err }, "Gemini error");
+          await ctx.reply("Не удалось распознать изображение. Попробуй ещё раз.").catch(() => {});
+          return;
+        }
       }
-      logger.error({ chatId, err }, "Gemini error");
-      await ctx.reply("Произошла ошибка при анализе изображения.").catch(() => {});
+
+      const answer = await retry(() => askOpenRouter(ctx.from.id, userMessage), 3, 1500, "OpenRouter");
+      await sendMessage(ctx, answer);
+    } catch (err) {
+      logger.error({ chatId, err }, "Photo handler error");
+      await ctx.reply("Произошла ошибка при обработке запроса.").catch(() => {});
       throw err;
     } finally {
       clearInterval(typingInterval);

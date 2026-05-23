@@ -12,14 +12,7 @@ export class GeminiBlockedError extends Error {
 const GEMINI_MODEL = "gemini-2.5-flash";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${config.geminiApiKey}`;
 
-const SYSTEM_INSTRUCTION = `Format responses using ONLY these supported Telegram HTML tags:
-- <b>bold</b> for important terms and headings
-- <i>italic</i> for emphasis
-- <code>code</code> for inline code
-- <pre>code block</pre> for multi-line code
-
-FORBIDDEN — never use: <h1>-<h6>, <ul>, <ol>, <li>, <hr>, <br>, <p>, <div>, <span>, or Markdown (**, __, \`, #, etc.).
-Use plain newlines to separate sections. Use <b> instead of headings. Use "- " for lists instead of <ul><li>.`;
+const DESCRIPTION_PROMPT = `Подробно опиши что изображено на картинке. Включи все детали: объекты, людей, текст на изображении, цвета, атмосферу, стиль. Если это мем — обязательно объясни его суть, контекст и юмор. Описывай конкретно и развёрнуто, без пропусков. Отвечай на русском языке.`;
 
 function httpsPost(url: string, body: object, agent?: HttpsProxyAgent<string>): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -69,12 +62,12 @@ function downloadFile(url: string): Promise<Buffer> {
   });
 }
 
-export async function analyzeImage(fileUrl: string, prompt: string): Promise<string> {
+export async function analyzeImage(fileUrl: string): Promise<string> {
   const buffer = await downloadFile(fileUrl);
   const agent = config.proxyUrl ? new HttpsProxyAgent(config.proxyUrl) : undefined;
 
   const body = {
-    system_instruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+    tools: [{ googleSearch: {} }],
     safetySettings: [
       { category: "HARM_CATEGORY_HARASSMENT",        threshold: "BLOCK_NONE" },
       { category: "HARM_CATEGORY_HATE_SPEECH",       threshold: "BLOCK_NONE" },
@@ -84,7 +77,7 @@ export async function analyzeImage(fileUrl: string, prompt: string): Promise<str
     contents: [{
       parts: [
         { inline_data: { mime_type: "image/jpeg", data: buffer.toString("base64") } },
-        { text: prompt },
+        { text: DESCRIPTION_PROMPT },
       ],
     }],
   };
