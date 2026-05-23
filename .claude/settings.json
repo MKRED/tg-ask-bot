@@ -4,7 +4,10 @@
       "Bash(yarn *)",
       "Bash(taskkill *)",
       "Bash(Get-Process *)",
-      "Bash(Stop-Process *)"
+      "Bash(Stop-Process *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
     ]
   }
 }
