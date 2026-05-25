@@ -9,6 +9,19 @@ import { upsertUser } from "../db/users";
 
 const MAX_MSG_LENGTH = 4000;
 
+const FACT_SAVED_REPLIES = [
+  "✨ Запомнил кое-что о тебе",
+  "🧠 Принял к сведению",
+  "📌 Зафиксировал",
+  "💾 Сохранил в памяти",
+  "🔖 Отметил для себя",
+  "✅ Учту в следующий раз",
+  "📝 Записал",
+  "💡 Понял, запомнил",
+  "🗂️ Добавил в досье",
+  "🤫 Запомнил, никому не скажу",
+];
+
 const BUSY_REPLIES = [
   "Стоп. Я однопоточный. Жди.",
   "Уже думаю над предыдущим. Один мозг — одна задача.",
@@ -27,6 +40,10 @@ const processing = new Set<number>();
 
 function randomBusyReply(): string {
   return BUSY_REPLIES[Math.floor(Math.random() * BUSY_REPLIES.length)];
+}
+
+function randomFactSavedReply(): string {
+  return FACT_SAVED_REPLIES[Math.floor(Math.random() * FACT_SAVED_REPLIES.length)];
 }
 
 
@@ -82,7 +99,7 @@ export function registerMessageHandlers(bot: Bot): void {
       await sendMessage(ctx, answer);
       extractFacts(ctx.from.id).then(async (count) => {
         if (count > 0) {
-          const note = await ctx.reply("✨ Запомнил кое-что о тебе");
+          const note = await ctx.reply(randomFactSavedReply());
           setTimeout(() => ctx.api.deleteMessage(chatId, note.message_id).catch(() => {}), 4000);
         }
       }).catch((err) => logger.warn({ chatId, err }, "Fact extraction failed"));
@@ -144,7 +161,7 @@ export function registerMessageHandlers(bot: Bot): void {
       await sendMessage(ctx, answer);
       extractFacts(ctx.from.id).then(async (count) => {
         if (count > 0) {
-          const note = await ctx.reply("✨ Запомнил кое-что о тебе");
+          const note = await ctx.reply(randomFactSavedReply());
           setTimeout(() => ctx.api.deleteMessage(chatId, note.message_id).catch(() => {}), 4000);
         }
       }).catch((err) => logger.warn({ chatId, err }, "Fact extraction failed"));

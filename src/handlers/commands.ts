@@ -28,4 +28,8 @@ export function registerCommands(bot: Bot): void {
     logger.info({ userId: ctx.from!.id }, "forget_menu_opened");
     await sendForgetMenu(ctx);
   });
+
+  bot.on("message:entities:bot_command", (ctx) =>
+    ctx.reply("Такой команды не существует. Используйте /help для списка доступных команд.")
+  );
 }
