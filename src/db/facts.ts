@@ -54,6 +54,11 @@ export async function deleteUserFact(telegramId: number, key: string): Promise<v
   await db.delete(userFacts).where(and(eq(userFacts.userId, telegramId), eq(userFacts.key, key)));
 }
 
+export async function deleteUserFactById(id: number): Promise<UserFact | null> {
+  const [deleted] = await db.delete(userFacts).where(eq(userFacts.id, id)).returning();
+  return deleted ?? null;
+}
+
 export async function deleteUserFacts(telegramId: number): Promise<void> {
   await db.delete(userFacts).where(eq(userFacts.userId, telegramId));
 }

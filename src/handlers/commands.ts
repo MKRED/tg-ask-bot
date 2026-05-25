@@ -1,6 +1,6 @@
 import { Bot } from "grammy";
 import { clearHistory } from "../openrouter";
-import { deleteUserFacts } from "../db/facts";
+import { sendForgetMenu } from "./forgetMenu";
 import logger from "../logger";
 
 export function registerCommands(bot: Bot): void {
@@ -9,7 +9,13 @@ export function registerCommands(bot: Bot): void {
   );
 
   bot.command("help", (ctx) =>
-    ctx.reply("Доступные команды:\n/start — начать\n/clear — очистить историю чата\n/forget — забыть всё о себе\n/help — помощь")
+    ctx.reply(
+      "Доступные команды:\n" +
+      "/start — начать\n" +
+      "/clear — очистить историю чата\n" +
+      "/facts — управлять сохранёнными фактами\n" +
+      "/help — помощь"
+    )
   );
 
   bot.command("clear", async (ctx) => {
@@ -18,9 +24,8 @@ export function registerCommands(bot: Bot): void {
     return ctx.reply("История чата очищена.");
   });
 
-  bot.command("forget", async (ctx) => {
-    await deleteUserFacts(ctx.from!.id);
-    logger.info({ chatId: ctx.chat.id }, "User facts cleared");
-    return ctx.reply("Всё, что я о тебе знал — забыто.");
+  bot.command("facts", async (ctx) => {
+    logger.info({ userId: ctx.from!.id }, "forget_menu_opened");
+    await sendForgetMenu(ctx);
   });
 }

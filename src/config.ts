@@ -13,4 +13,10 @@ export const config = {
   openrouterModel: process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-v4-flash",
   geminiApiKey: requireEnv("GEMINI_API_KEY"),
   databaseUrl: requireEnv("DATABASE_URL"),
+  inlineMenuInactivityTimeoutMs: parseInt(
+    process.env.INLINE_MENU_INACTIVITY_TIMEOUT_MS ?? String(30 * 60 * 1000)
+  ),
+  inlineMenuMaxAgeMs: parseInt(
+    process.env.INLINE_MENU_MAX_AGE_MS ?? String(24 * 60 * 60 * 1000)
+  ),
 };

@@ -33,9 +33,19 @@ export const userFacts = pgTable("user_facts", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [unique().on(table.userId, table.key)]);
 
+export const inlineMenus = pgTable("inline_menus", {
+  id: serial("id").primaryKey(),
+  userId: bigint("user_id", { mode: "number" }).notNull(),
+  chatId: bigint("chat_id", { mode: "number" }).notNull(),
+  messageId: bigint("message_id", { mode: "number" }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastInteractionAt: timestamp("last_interaction_at").notNull().defaultNow(),
+});
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 export type UserFact = typeof userFacts.$inferSelect;
 export type NewUserFact = typeof userFacts.$inferInsert;
+export type InlineMenu = typeof inlineMenus.$inferSelect;
