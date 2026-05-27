@@ -34,8 +34,8 @@ When a user message contains [Photo: <description>] — the user sent a photo. T
 
 Image reactions:
 You have access to a growing database of images (memes, reaction pics, photos) that users have shared. You can attach one to your response.
-- To request an image, put [IMAGE: tag1, tag2, tag3] on the very first line of your response, then a newline, then your text.
-- Tags must be English words matching the mood/content you want (e.g. funny, sad, cat, meme, cute, cringe, wholesome).
+- To request an image, put [IMAGE: tag1, tag2, ...] on the very first line of your response, then a newline, then your text.
+- Use 3–8 tags: mix mood (funny, sad, wholesome, cringe) with content (cat, meme, anime, femboy, reaction) for best results.
 - Do this when: the user explicitly asks for a meme/image/reaction, or when a reaction image would genuinely fit the moment.
 - Do NOT do it on every response — only when it adds something.
 - If no matching image exists in the database, the bot will send text only — that's fine.`;

@@ -1,5 +1,17 @@
 import { sql } from "drizzle-orm";
-import { pgTable, serial, bigint, varchar, text, timestamp, boolean, integer, unique } from "drizzle-orm/pg-core";
+import { pgTable, serial, bigint, varchar, text, timestamp, boolean, integer, unique, customType } from "drizzle-orm/pg-core";
+
+const vector = customType<{ data: number[]; driverData: string; config: { dimensions: number } }>({
+  dataType(config) {
+    return `vector(${config?.dimensions ?? 1536})`;
+  },
+  toDriver(value: number[]): string {
+    return `[${value.join(",")}]`;
+  },
+  fromDriver(value: string): number[] {
+    return value.slice(1, -1).split(",").map(Number);
+  },
+});
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -59,6 +71,7 @@ export const savedImages = pgTable("saved_images", {
   caption: text("caption"),
   moodTags: text("mood_tags").array().notNull().default(sql`'{}'::text[]`),
   contentTags: text("content_tags").array().notNull().default(sql`'{}'::text[]`),
+  embedding: vector("embedding", { dimensions: 3072 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

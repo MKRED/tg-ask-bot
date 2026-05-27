@@ -82,6 +82,23 @@ function downloadFile(url: string): Promise<Buffer> {
   });
 }
 
+const EMBEDDING_MODEL = "gemini-embedding-001";
+const EMBEDDING_URL = `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:embedContent?key=${config.geminiApiKey}`;
+
+export async function generateEmbedding(text: string): Promise<number[]> {
+  const agent = config.proxyUrl ? new HttpsProxyAgent(config.proxyUrl) : undefined;
+  const body = {
+    model: `models/${EMBEDDING_MODEL}`,
+    content: { parts: [{ text }] },
+  };
+  const t0 = Date.now();
+  const data = await httpsPost(EMBEDDING_URL, body, agent);
+  const values: number[] | undefined = data?.embedding?.values;
+  if (!values) throw new Error(`Gemini embedding error: ${JSON.stringify(data)}`);
+  logger.info({ model: EMBEDDING_MODEL, durationMs: Date.now() - t0, dims: values.length }, "Gemini embedding generated");
+  return values;
+}
+
 export async function analyzeImage(fileUrl: string): Promise<ImageAnalysis> {
   const buffer = await downloadFile(fileUrl);
   const agent = config.proxyUrl ? new HttpsProxyAgent(config.proxyUrl) : undefined;

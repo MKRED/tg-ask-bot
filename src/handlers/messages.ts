@@ -1,12 +1,12 @@
 import { Bot } from "grammy";
-import { analyzeImage, GeminiBlockedError } from "../gemini";
+import { analyzeImage, generateEmbedding, GeminiBlockedError } from "../gemini";
 import { askOpenRouter, type BotResponse } from "../openrouter";
 import { extractFacts } from "../extractFacts";
 import { config } from "../config";
 import logger from "../logger";
 import { retry } from "../utils/retry";
 import { upsertUser } from "../db/users";
-import { saveImage, findImagesByTags } from "../db/savedImages";
+import { saveImage, findSimilarImages } from "../db/savedImages";
 
 const MAX_MSG_LENGTH = 4000;
 
@@ -68,15 +68,20 @@ function splitMessage(text: string): string[] {
 async function sendResponseWithImage(ctx: any, chatId: number, answer: BotResponse): Promise<void> {
   await sendMessage(ctx, answer.text);
   if (!answer.imageTags || answer.imageTags.length === 0) return;
-  findImagesByTags(answer.imageTags).then(async (images) => {
-    if (images.length === 0) {
-      logger.info({ chatId, tags: answer.imageTags }, "Image requested but no match found in DB");
-      return;
-    }
-    const chosen = images[Math.floor(Math.random() * images.length)];
-    logger.info({ chatId, imageId: chosen.id, tags: answer.imageTags }, "Sending image with response");
-    await ctx.replyWithPhoto(chosen.fileId).catch(() => {});
-  }).catch((err) => logger.warn({ chatId, err }, "Image retrieval failed"));
+  const queryText = answer.imageTags.join(" ");
+  logger.info({ chatId, tags: answer.imageTags }, "Searching similar image by embedding");
+  generateEmbedding(queryText)
+    .then((embedding) => findSimilarImages(embedding))
+    .then(async (images) => {
+      if (images.length === 0) {
+        logger.info({ chatId, tags: answer.imageTags }, "Image requested but no match found in DB");
+        return;
+      }
+      const chosen = images[0];
+      logger.info({ chatId, imageId: chosen.id, tags: answer.imageTags }, "Sending image with response");
+      await ctx.replyWithPhoto(chosen.fileId).catch(() => {});
+    })
+    .catch((err) => logger.warn({ chatId, err }, "Image retrieval failed"));
 }
 
 async function sendMessage(ctx: any, text: string) {
@@ -162,14 +167,18 @@ export function registerMessageHandlers(bot: Bot): void {
           ? `${caption}\n\n[Photo: ${imageAnalysis.description}]`
           : `[User sent a photo without caption]\n\n[Photo: ${imageAnalysis.description}]`;
 
-        saveImage({
-          fileId: photo.file_id,
-          senderUserId: ctx.from.id,
-          description: imageAnalysis.description,
-          caption,
-          moodTags: imageAnalysis.moodTags,
-          contentTags: imageAnalysis.contentTags,
-        }).then(() => logger.info({ chatId, moodTags: imageAnalysis.moodTags, contentTags: imageAnalysis.contentTags }, "Image saved to DB"))
+        const embeddingText = `${imageAnalysis.description} ${[...imageAnalysis.moodTags, ...imageAnalysis.contentTags].join(" ")}`;
+        generateEmbedding(embeddingText)
+          .then((embedding) => saveImage({
+            fileId: photo.file_id,
+            senderUserId: ctx.from.id,
+            description: imageAnalysis.description,
+            caption,
+            moodTags: imageAnalysis.moodTags,
+            contentTags: imageAnalysis.contentTags,
+            embedding,
+          }))
+          .then(() => logger.info({ chatId, moodTags: imageAnalysis.moodTags, contentTags: imageAnalysis.contentTags }, "Image saved to DB with embedding"))
           .catch((err) => logger.warn({ chatId, err }, "Failed to save image to DB"));
       } catch (err) {
         if (err instanceof GeminiBlockedError) {

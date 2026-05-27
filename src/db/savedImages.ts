@@ -7,6 +7,16 @@ export async function saveImage(data: NewSavedImage): Promise<void> {
   await db.insert(savedImages).values(data);
 }
 
+export async function findSimilarImages(embedding: number[], limit = 1): Promise<SavedImage[]> {
+  const vec = `[${embedding.join(",")}]`;
+  return db
+    .select()
+    .from(savedImages)
+    .where(sql`embedding IS NOT NULL`)
+    .orderBy(sql`embedding <=> ${vec}::vector`)
+    .limit(limit);
+}
+
 export async function findImagesByTags(tags: string[], limit = 5): Promise<SavedImage[]> {
   if (tags.length === 0) return [];
   const arr1 = sql.join(tags.map((t) => sql`${t}`), sql`, `);
