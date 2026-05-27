@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { pgTable, serial, bigint, varchar, text, timestamp, boolean, integer, unique } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
@@ -49,3 +50,17 @@ export type NewMessage = typeof messages.$inferInsert;
 export type UserFact = typeof userFacts.$inferSelect;
 export type NewUserFact = typeof userFacts.$inferInsert;
 export type InlineMenu = typeof inlineMenus.$inferSelect;
+
+export const savedImages = pgTable("saved_images", {
+  id: serial("id").primaryKey(),
+  fileId: varchar("file_id", { length: 255 }).notNull(),
+  senderUserId: bigint("sender_user_id", { mode: "number" }).notNull(),
+  description: text("description").notNull(),
+  caption: text("caption"),
+  moodTags: text("mood_tags").array().notNull().default(sql`'{}'::text[]`),
+  contentTags: text("content_tags").array().notNull().default(sql`'{}'::text[]`),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type SavedImage = typeof savedImages.$inferSelect;
+export type NewSavedImage = typeof savedImages.$inferInsert;

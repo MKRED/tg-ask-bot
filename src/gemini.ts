@@ -10,10 +10,29 @@ export class GeminiBlockedError extends Error {
   }
 }
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = "gemini-3.1-flash-lite";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${config.geminiApiKey}`;
 
-const DESCRIPTION_PROMPT = `Подробно опиши что изображено на картинке. Включи все детали: объекты, людей, текст на изображении, цвета, атмосферу, стиль. Если это мем — обязательно объясни его суть, контекст и юмор. Описывай конкретно и развёрнуто, без пропусков. Отвечай на русском языке.`;
+export interface ImageAnalysis {
+  description: string;
+  moodTags: string[];
+  contentTags: string[];
+}
+
+const DESCRIPTION_PROMPT = `Проанализируй изображение:
+- description: подробное описание на русском — объекты, люди, текст, цвета, атмосфера, стиль. Если мем — объясни суть и юмор.
+- mood_tags: 5-10 тегов настроения/атмосферы на английском (funny, sad, cute, wholesome, cringe, dramatic, absurd, dark, cozy, romantic, epic...).
+- content_tags: 8-15 тематических тегов на английском. Включай: имена персонажей если узнаёшь (astolfo, naruto...), серию/франшизу (fate, one_piece...), цвет волос (pink_hair...), одежду (armor, dress...), тип контента (meme, fan_art, photo, illustration...), архетип (femboy, girl, boy...), объекты и сеттинг.`;
+
+const RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    description: { type: "string" },
+    mood_tags: { type: "array", items: { type: "string" } },
+    content_tags: { type: "array", items: { type: "string" } },
+  },
+  required: ["description", "mood_tags", "content_tags"],
+};
 
 function httpsPost(url: string, body: object, agent?: HttpsProxyAgent<string>): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -63,7 +82,7 @@ function downloadFile(url: string): Promise<Buffer> {
   });
 }
 
-export async function analyzeImage(fileUrl: string): Promise<string> {
+export async function analyzeImage(fileUrl: string): Promise<ImageAnalysis> {
   const buffer = await downloadFile(fileUrl);
   const agent = config.proxyUrl ? new HttpsProxyAgent(config.proxyUrl) : undefined;
 
@@ -75,6 +94,10 @@ export async function analyzeImage(fileUrl: string): Promise<string> {
       { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
       { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
     ],
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: RESPONSE_SCHEMA,
+    },
     contents: [{
       parts: [
         { inline_data: { mime_type: "image/jpeg", data: buffer.toString("base64") } },
@@ -96,5 +119,10 @@ export async function analyzeImage(fileUrl: string): Promise<string> {
   const usage = data?.usageMetadata;
   logger.info({ model: GEMINI_MODEL, durationMs, promptTokens: usage?.promptTokenCount, totalTokens: usage?.totalTokenCount }, "Gemini request completed");
 
-  return text;
+  const parsed = JSON.parse(text);
+  return {
+    description: parsed.description,
+    moodTags: parsed.mood_tags ?? [],
+    contentTags: parsed.content_tags ?? [],
+  };
 }

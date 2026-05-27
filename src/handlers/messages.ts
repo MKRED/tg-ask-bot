@@ -1,11 +1,12 @@
 import { Bot } from "grammy";
 import { analyzeImage, GeminiBlockedError } from "../gemini";
-import { askOpenRouter } from "../openrouter";
+import { askOpenRouter, type BotResponse } from "../openrouter";
 import { extractFacts } from "../extractFacts";
 import { config } from "../config";
 import logger from "../logger";
 import { retry } from "../utils/retry";
 import { upsertUser } from "../db/users";
+import { saveImage, findImagesByTags } from "../db/savedImages";
 
 const MAX_MSG_LENGTH = 4000;
 
@@ -64,6 +65,20 @@ function splitMessage(text: string): string[] {
   return parts;
 }
 
+async function sendResponseWithImage(ctx: any, chatId: number, answer: BotResponse): Promise<void> {
+  await sendMessage(ctx, answer.text);
+  if (!answer.imageTags || answer.imageTags.length === 0) return;
+  findImagesByTags(answer.imageTags).then(async (images) => {
+    if (images.length === 0) {
+      logger.info({ chatId, tags: answer.imageTags }, "Image requested but no match found in DB");
+      return;
+    }
+    const chosen = images[Math.floor(Math.random() * images.length)];
+    logger.info({ chatId, imageId: chosen.id, tags: answer.imageTags }, "Sending image with response");
+    await ctx.replyWithPhoto(chosen.fileId).catch(() => {});
+  }).catch((err) => logger.warn({ chatId, err }, "Image retrieval failed"));
+}
+
 async function sendMessage(ctx: any, text: string) {
   const parts = splitMessage(text);
   const t0 = Date.now();
@@ -96,7 +111,7 @@ export function registerMessageHandlers(bot: Bot): void {
 
     try {
       const answer = await retry(() => askOpenRouter(ctx.from.id, ctx.message.text), 3, 1500, "OpenRouter");
-      await sendMessage(ctx, answer);
+      await sendResponseWithImage(ctx, chatId, answer);
       extractFacts(ctx.from.id).then(async (count) => {
         if (count > 0) {
           const note = await ctx.reply(randomFactSavedReply());
@@ -137,15 +152,25 @@ export function registerMessageHandlers(bot: Bot): void {
       let userMessage: string;
 
       try {
-        const description = await retry(
+        const imageAnalysis = await retry(
           () => analyzeImage(fileUrl),
           3, 1500, "Gemini",
           (err) => !(err instanceof GeminiBlockedError)
         );
-        const caption = ctx.message.caption;
+        const caption = ctx.message.caption ?? null;
         userMessage = caption
-          ? `${caption}\n\n[Photo: ${description}]`
-          : `[User sent a photo without caption]\n\n[Photo: ${description}]`;
+          ? `${caption}\n\n[Photo: ${imageAnalysis.description}]`
+          : `[User sent a photo without caption]\n\n[Photo: ${imageAnalysis.description}]`;
+
+        saveImage({
+          fileId: photo.file_id,
+          senderUserId: ctx.from.id,
+          description: imageAnalysis.description,
+          caption,
+          moodTags: imageAnalysis.moodTags,
+          contentTags: imageAnalysis.contentTags,
+        }).then(() => logger.info({ chatId, moodTags: imageAnalysis.moodTags, contentTags: imageAnalysis.contentTags }, "Image saved to DB"))
+          .catch((err) => logger.warn({ chatId, err }, "Failed to save image to DB"));
       } catch (err) {
         if (err instanceof GeminiBlockedError) {
           logger.info({ chatId, blockReason: err.blockReason }, "Gemini blocked image");
@@ -158,7 +183,7 @@ export function registerMessageHandlers(bot: Bot): void {
       }
 
       const answer = await retry(() => askOpenRouter(ctx.from.id, userMessage), 3, 1500, "OpenRouter");
-      await sendMessage(ctx, answer);
+      await sendResponseWithImage(ctx, chatId, answer);
       extractFacts(ctx.from.id).then(async (count) => {
         if (count > 0) {
           const note = await ctx.reply(randomFactSavedReply());
