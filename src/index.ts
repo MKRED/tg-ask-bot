@@ -1,8 +1,8 @@
 import { run } from "@grammyjs/runner";
 import { bot } from "./bot";
 import { registerCommands } from "./handlers/commands";
-import { registerMessageHandlers } from "./handlers/messages";
-import { registerForgetCallbacks, startMenuCleanupScheduler } from "./handlers/forgetMenu";
+import { registerMessageHandlers } from "./handlers/messages/index";
+import { registerForgetCallbacks, startMenuCleanupScheduler } from "./handlers/forgetMenu/index";
 import logger from "./logger";
 
 registerCommands(bot);

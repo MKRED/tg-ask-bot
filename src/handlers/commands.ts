@@ -1,6 +1,6 @@
 import { Bot } from "grammy";
-import { clearHistory } from "../openrouter";
-import { sendForgetMenu } from "./forgetMenu";
+import { clearHistory } from "../ai/openrouter";
+import { sendForgetMenu } from "./forgetMenu/index";
 import logger from "../logger";
 
 export function registerCommands(bot: Bot): void {

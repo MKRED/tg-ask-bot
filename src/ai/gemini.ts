@@ -1,7 +1,9 @@
-import https from "https";
 import { HttpsProxyAgent } from "https-proxy-agent";
-import { config } from "./config";
-import logger from "./logger";
+import { config } from "../config";
+import logger from "../logger";
+import { httpsPost, downloadFile } from "../utils/http";
+import { DESCRIPTION_PROMPT, RESPONSE_SCHEMA } from "../prompts/imageAnalysis";
+import type { ImageAnalysis } from "../types";
 
 export class GeminiBlockedError extends Error {
   constructor(public readonly blockReason: string) {
@@ -10,77 +12,10 @@ export class GeminiBlockedError extends Error {
   }
 }
 
+export type { ImageAnalysis };
+
 const GEMINI_MODEL = "gemini-3.1-flash-lite";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${config.geminiApiKey}`;
-
-export interface ImageAnalysis {
-  description: string;
-  moodTags: string[];
-  contentTags: string[];
-}
-
-const DESCRIPTION_PROMPT = `Проанализируй изображение:
-- description: подробное описание на русском — объекты, люди, текст, цвета, атмосфера, стиль. Если мем — объясни суть и юмор.
-- mood_tags: 5-10 тегов настроения/атмосферы на английском (funny, sad, cute, wholesome, cringe, dramatic, absurd, dark, cozy, romantic, epic...).
-- content_tags: 8-15 тематических тегов на английском. Включай: имена персонажей если узнаёшь (astolfo, naruto...), серию/франшизу (fate, one_piece...), цвет волос (pink_hair...), одежду (armor, dress...), тип контента (meme, fan_art, photo, illustration...), архетип (femboy, girl, boy...), объекты и сеттинг.`;
-
-const RESPONSE_SCHEMA = {
-  type: "object",
-  properties: {
-    description: { type: "string" },
-    mood_tags: { type: "array", items: { type: "string" } },
-    content_tags: { type: "array", items: { type: "string" } },
-  },
-  required: ["description", "mood_tags", "content_tags"],
-};
-
-function httpsPost(url: string, body: object, agent?: HttpsProxyAgent<string>): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const bodyStr = JSON.stringify(body);
-    const urlObj = new URL(url);
-
-    const req = https.request(
-      {
-        hostname: urlObj.hostname,
-        path: urlObj.pathname + urlObj.search,
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(bodyStr),
-        },
-        agent,
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (chunk) => chunks.push(chunk));
-        res.on("end", () => {
-          try {
-            resolve(JSON.parse(Buffer.concat(chunks).toString()));
-          } catch (e) {
-            reject(e);
-          }
-        });
-        res.on("error", reject);
-      }
-    );
-
-    req.on("error", reject);
-    req.write(bodyStr);
-    req.end();
-  });
-}
-
-function downloadFile(url: string): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const agent = config.proxyUrl ? new HttpsProxyAgent(config.proxyUrl) : undefined;
-    https.get(url, { agent } as any, (res) => {
-      const chunks: Buffer[] = [];
-      res.on("data", (chunk) => chunks.push(chunk));
-      res.on("end", () => resolve(Buffer.concat(chunks)));
-      res.on("error", reject);
-    }).on("error", reject);
-  });
-}
 
 const EMBEDDING_MODEL = "gemini-embedding-001";
 const EMBEDDING_URL = `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:embedContent?key=${config.geminiApiKey}`;
@@ -100,8 +35,8 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 }
 
 export async function analyzeImage(fileUrl: string): Promise<ImageAnalysis> {
-  const buffer = await downloadFile(fileUrl);
   const agent = config.proxyUrl ? new HttpsProxyAgent(config.proxyUrl) : undefined;
+  const buffer = await downloadFile(fileUrl, agent);
 
   const body = {
     tools: [{ googleSearch: {} }],

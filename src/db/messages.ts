@@ -2,8 +2,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import { db } from "./index";
 import { messages } from "./schema";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
-
-const MAX_HISTORY_MESSAGES = 50;
+import { MAX_HISTORY_MESSAGES } from "../constants";
 
 export async function saveMessage(
   telegramId: number,

@@ -1,0 +1,152 @@
+# tg_ask_bot — Claude Code Instructions
+
+## Package manager
+Always use **yarn**. Never use npm.
+
+## Dev workflow
+```
+yarn dev           # start bot (run in background)
+Stop-Process -Name "node"  # stop bot
+yarn drizzle-kit generate  # generate migration from schema changes
+yarn drizzle-kit migrate   # apply migrations to DB
+```
+
+## Architecture
+
+```
+src/
+  index.ts               — entry point, bot init, graceful shutdown
+  bot.ts                 — grammY bot instance
+  config.ts              — env vars (requireEnv for mandatory, process.env for optional)
+  logger.ts              — pino logger (daily rolling, pino-pretty in TTY)
+  ai/
+    gemini.ts            — Gemini API: analyzeImage(), generateEmbedding(), GeminiBlockedError
+    openrouter.ts        — OpenRouter chat: askOpenRouter(), clearHistory(), addToHistory()
+    extractFacts.ts      — LLM fact extraction from conversation history
+  db/
+    index.ts             — drizzle DB client
+    schema.ts            — all table definitions + exported types
+    messages.ts          — save/get/clear chat history
+    users.ts             — upsertUser()
+    facts.ts             — user facts CRUD
+    savedImages.ts       — saveImage(), findSimilarImages() (pgvector cosine)
+    inlineMenus.ts       — inline keyboard menu state
+  handlers/
+    commands.ts          — bot commands (/start, /clear, /facts, /help)
+    messages/
+      index.ts           — registerMessageHandlers()
+      text.ts            — text message handler
+      photo.ts           — photo message handler
+      shared.ts          — processing set, sendMessage(), sendResponseWithImage()
+    forgetMenu/
+      index.ts           — sendForgetMenu(), registerForgetCallbacks(), startMenuCleanupScheduler()
+      render.ts          — buildMenuText(), buildMenuKeyboard(), buildConfirmKeyboard(), disableMenu()
+  prompts/
+    conversation.ts      — SYSTEM_PROMPT + buildSystemPrompt(facts)
+    factExtraction.ts    — EXTRACTION_SYSTEM_PROMPT
+    imageAnalysis.ts     — DESCRIPTION_PROMPT + RESPONSE_SCHEMA
+  types/
+    bot.types.ts         — BotResponse interface
+    gemini.types.ts      — ImageAnalysis interface
+    index.ts             — barrel export
+  constants/
+    ai.constants.ts      — LAST_EXCHANGES, IMAGE_MARKER
+    db.constants.ts      — MAX_HISTORY_MESSAGES, MAX_FACTS
+    ui.constants.ts      — MAX_MSG_LENGTH, FACTS_PER_PAGE, CLEANUP_INTERVAL_MS
+    index.ts             — barrel export
+  strings/
+    replies.ts           — FACT_SAVED_REPLIES, BUSY_REPLIES, randomBusyReply(), randomFactSavedReply()
+  utils/
+    retry.ts             — retry(fn, attempts, delayMs, label, shouldRetry?)
+    http.ts              — httpsPost(), downloadFile() (used by ai/gemini.ts)
+  scripts/
+    backfillEmbeddings.ts — one-time script to fill missing embeddings
+```
+
+## Code conventions
+
+### Logging — mandatory
+Every new module that does external I/O (API calls, DB writes, Telegram API) **must**:
+1. Import `logger` from `../logger` (adjust path as needed)
+2. Log the start or key parameters at `debug` or `info`
+3. Measure duration: `const t0 = Date.now()` before the call, `durationMs: Date.now() - t0` in the log after
+4. Log completion with timing and relevant metadata (token counts for LLM calls, row counts for DB ops, `dims` for embeddings)
+5. Log errors with `logger.error({ err, ...context }, "description")` — never swallow silently
+
+Pattern from existing code:
+```typescript
+const t0 = Date.now();
+const result = await externalCall(...);
+logger.info({ durationMs: Date.now() - t0, ...relevantFields }, "Operation completed");
+```
+
+### Error handling — mandatory
+- Every new `async` function must either propagate errors to its caller or catch and log them explicitly
+- Fire-and-forget chains (`.then().catch()`) must always end with `.catch((err) => logger.warn({ err, ...ctx }, "what failed"))`
+- Never use an empty `catch {}` block — always log at minimum
+- For handlers: unexpected errors should be logged with `logger.error` and result in a user-facing reply
+
+### No unnecessary comments
+Only add a comment when the **why** is non-obvious (hidden constraint, workaround, subtle invariant). Never describe what the code does — names do that.
+
+### DB schema changes
+1. Edit `src/db/schema.ts`
+2. Run `yarn drizzle-kit generate` to create migration SQL in `drizzle/`
+3. For pgvector extensions: manually add `CREATE EXTENSION IF NOT EXISTS vector;` to the migration — drizzle-kit does not generate it
+4. Run `yarn drizzle-kit migrate` to apply
+
+## External APIs
+
+| Service | Used for | Key env var |
+|---|---|---|
+| OpenRouter | Chat completions, fact extraction | `OPENROUTER_API_KEY` |
+| Gemini | Image analysis, embeddings | `GEMINI_API_KEY` |
+| Telegram | Bot API | `BOT_TOKEN` |
+
+- Gemini image analysis model: `gemini-3.1-flash-lite` (in `gemini.ts`)
+- Gemini embedding model: `gemini-embedding-001`, produces **3072-dim** vectors
+- OpenRouter model: configured via `OPENROUTER_MODEL` env var (default: `deepseek/deepseek-v4-flash`)
+
+## pgvector
+- DB must have the `vector` extension: `CREATE EXTENSION IF NOT EXISTS vector;`
+- Vector column type is a `customType` in `schema.ts` (drizzle has no native pgvector support)
+- Cosine similarity search: `ORDER BY embedding <=> ${vec}::vector`
+- Embedding text for storage: `description + " " + [...moodTags, ...contentTags].join(" ")`
+- Embedding text for query: tags joined with spaces
+
+## Keeping docs up to date
+
+### README.md
+Update `README.md` whenever:
+- A new external dependency or service is added (API, DB extension, package)
+- Setup steps change (new env vars, new migration, new required tool)
+- A major feature is added that a new developer would need to know about
+- Something in the stack section becomes outdated
+
+### CLAUDE.md (this file)
+Update this file whenever:
+- A new architectural pattern is established (new module type, new convention)
+- A new external API or model is introduced
+- A code convention is agreed upon or changed in conversation
+- A new mandatory rule is introduced (logging, error handling, etc.)
+- The project structure changes significantly (new directories, new key files)
+
+Both files should reflect the **current state** of the project, not its history. If something is removed — remove it from the docs too.
+
+## Key patterns
+
+**Retry wrapper** — use for all external calls that can transiently fail:
+```typescript
+await retry(() => someApiCall(), 3, 1500, "Label");
+// or with custom shouldRetry:
+await retry(() => call(), 3, 1500, "Label", (err) => !(err instanceof NonRetryableError));
+```
+
+**Fire-and-forget** — for non-blocking background work:
+```typescript
+someAsyncWork()
+  .then((result) => logger.info({ result }, "Background work done"))
+  .catch((err) => logger.warn({ err }, "Background work failed"));
+```
+
+**Processing lock** — `messages.ts` uses a `Set<number>` keyed by chatId to reject concurrent requests from the same user.

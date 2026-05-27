@@ -2,8 +2,7 @@ import { asc, count, eq, and } from "drizzle-orm";
 import { db } from "./index";
 import { userFacts } from "./schema";
 import type { UserFact } from "./schema";
-
-const MAX_FACTS = 50;
+import { MAX_FACTS } from "../constants";
 
 export async function getUserFacts(telegramId: number): Promise<UserFact[]> {
   return db.select().from(userFacts).where(eq(userFacts.userId, telegramId));
