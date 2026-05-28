@@ -64,7 +64,7 @@ export async function askOpenRouter(telegramId: number, userMessage: string): Pr
   }
   const response_ = parseResponse(content);
   const historyContent = response_.imageTags
-    ? `${response_.text}\n[Sent image: ${response_.imageTags.join(", ")}]`
+    ? `[IMAGE: ${response_.imageTags.join(", ")}]\n${response_.text}`
     : response_.text;
   await saveMessage(telegramId, "assistant", historyContent, config.openrouterModel);
   return response_;

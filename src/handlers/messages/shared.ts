@@ -1,7 +1,7 @@
 import { generateEmbedding } from "../../ai/gemini";
 import { findSimilarImages } from "../../db/savedImages";
 import logger from "../../logger";
-import { MAX_MSG_LENGTH } from "../../constants";
+import { MAX_MSG_LENGTH, MAX_CAPTION_LENGTH } from "../../constants";
 import type { BotResponse } from "../../types";
 
 export const processing = new Set<number>();
@@ -37,20 +37,41 @@ export async function sendMessage(ctx: any, text: string): Promise<void> {
 }
 
 export async function sendResponseWithImage(ctx: any, chatId: number, answer: BotResponse): Promise<void> {
-  await sendMessage(ctx, answer.text);
-  if (!answer.imageTags || answer.imageTags.length === 0) return;
+  if (!answer.imageTags || answer.imageTags.length === 0) {
+    await sendMessage(ctx, answer.text);
+    return;
+  }
+
   const queryText = answer.imageTags.join(" ");
   logger.info({ chatId, tags: answer.imageTags }, "Searching similar image by embedding");
-  generateEmbedding(queryText)
-    .then((embedding) => findSimilarImages(embedding))
-    .then(async (images) => {
-      if (images.length === 0) {
-        logger.info({ chatId, tags: answer.imageTags }, "Image requested but no match found in DB");
-        return;
-      }
-      const chosen = images[0];
-      logger.info({ chatId, imageId: chosen.id, tags: answer.imageTags }, "Sending image with response");
-      await ctx.replyWithPhoto(chosen.fileId).catch(() => {});
-    })
-    .catch((err) => logger.warn({ chatId, err }, "Image retrieval failed"));
+
+  let images: Awaited<ReturnType<typeof findSimilarImages>> = [];
+  try {
+    const embedding = await generateEmbedding(queryText);
+    images = await findSimilarImages(embedding);
+  } catch (err) {
+    logger.warn({ chatId, err }, "Image retrieval failed, sending text only");
+    await sendMessage(ctx, answer.text);
+    return;
+  }
+
+  if (images.length === 0) {
+    logger.info({ chatId, tags: answer.imageTags }, "Image requested but no match found in DB");
+    await sendMessage(ctx, answer.text);
+    return;
+  }
+
+  const chosen = images[0];
+  logger.info({ chatId, imageId: chosen.id, tags: answer.imageTags }, "Sending image with caption");
+
+  if (answer.text.length <= MAX_CAPTION_LENGTH) {
+    try {
+      await ctx.replyWithPhoto(chosen.fileId, { caption: answer.text, parse_mode: "HTML" });
+    } catch {
+      await ctx.replyWithPhoto(chosen.fileId, { caption: answer.text });
+    }
+  } else {
+    await sendMessage(ctx, answer.text);
+    await ctx.replyWithPhoto(chosen.fileId).catch(() => {});
+  }
 }
