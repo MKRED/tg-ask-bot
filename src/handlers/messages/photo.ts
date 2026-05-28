@@ -1,5 +1,6 @@
 import type { Bot } from "grammy";
 import { analyzeImage, generateEmbedding, GeminiBlockedError } from "../../ai/gemini";
+import { analyzeImageOllama } from "../../ai/ollama";
 import { askOpenRouter } from "../../ai/openrouter";
 import { extractFacts } from "../../ai/extractFacts";
 import { config } from "../../config";
@@ -8,7 +9,7 @@ import { retry } from "../../utils/retry";
 import { upsertUser } from "../../db/users";
 import { saveImage } from "../../db/savedImages";
 import { processing, sendResponseWithImage } from "./shared";
-import { randomBusyReply, randomFactSavedReply } from "../../strings/replies";
+import { randomBusyReply, randomFactSavedReply, randomProcessingReply } from "../../strings/replies";
 
 export function registerPhotoHandler(bot: Bot): void {
   bot.on("message:photo", async (ctx) => {
@@ -46,37 +47,72 @@ export function registerPhotoHandler(bot: Bot): void {
           : `[User sent a photo without caption]\n\n[Photo: ${imageAnalysis.description}]`;
 
         const embeddingText = `${imageAnalysis.description} ${[...imageAnalysis.moodTags, ...imageAnalysis.contentTags].join(" ")}`;
-        generateEmbedding(embeddingText)
-          .then((embedding) => saveImage({
-            fileId: photo.file_id,
-            senderUserId: ctx.from.id,
-            description: imageAnalysis.description,
-            caption,
-            moodTags: imageAnalysis.moodTags,
-            contentTags: imageAnalysis.contentTags,
-            embedding,
-          }))
-          .then(() => logger.info({ chatId, moodTags: imageAnalysis.moodTags, contentTags: imageAnalysis.contentTags }, "Image saved to DB with embedding"))
-          .catch((err) => logger.warn({ chatId, err }, "Failed to save image to DB"));
-      } catch (err) {
-        if (err instanceof GeminiBlockedError) {
-          logger.info({ chatId, blockReason: err.blockReason }, "Gemini blocked image");
-          userMessage = "[User sent a photo that was blocked by content policy]";
+        (async () => {
+          let embedding: number[];
+          try {
+            embedding = await generateEmbedding(embeddingText);
+          } catch (err) {
+            logger.warn({ chatId, err }, "Gemini embedding failed, image will not be saved");
+            return;
+          }
+          saveImage({ fileId: photo.file_id, senderUserId: ctx.from.id, description: imageAnalysis.description, caption, moodTags: imageAnalysis.moodTags, contentTags: imageAnalysis.contentTags, isNsfw: imageAnalysis.isNsfw, embedding })
+            .then(() => logger.info({ chatId, moodTags: imageAnalysis.moodTags, contentTags: imageAnalysis.contentTags, isNsfw: imageAnalysis.isNsfw }, "Image saved to DB with embedding"))
+            .catch((err) => logger.warn({ chatId, err }, "Failed to save image to DB"));
+        })();
+      } catch (geminiErr) {
+        const blocked = geminiErr instanceof GeminiBlockedError;
+        if (blocked) {
+          logger.info({ chatId, blockReason: (geminiErr as GeminiBlockedError).blockReason }, "Gemini blocked image, falling back to Ollama");
         } else {
-          logger.error({ chatId, err }, "Gemini error");
-          await ctx.reply("Не удалось распознать изображение. Попробуй ещё раз.").catch(() => {});
-          return;
+          logger.warn({ chatId, err: geminiErr }, "Gemini failed, falling back to Ollama");
+        }
+
+        const processingMsg = await ctx.reply(randomProcessingReply()).catch(() => null);
+        try {
+          const imageAnalysis = await analyzeImageOllama(fileUrl);
+          const caption = ctx.message.caption ?? null;
+          userMessage = caption
+            ? `${caption}\n\n[Photo: ${imageAnalysis.description}]`
+            : `[User sent a photo without caption]\n\n[Photo: ${imageAnalysis.description}]`;
+
+          const embeddingText = `${imageAnalysis.description} ${[...imageAnalysis.moodTags, ...imageAnalysis.contentTags].join(" ")}`;
+          (async () => {
+            let embedding: number[];
+            try {
+              embedding = await generateEmbedding(embeddingText);
+            } catch (err) {
+              logger.warn({ chatId, err }, "Gemini embedding failed for Ollama image (likely content policy), image will not be saved");
+              return;
+            }
+            saveImage({ fileId: photo.file_id, senderUserId: ctx.from.id, description: imageAnalysis.description, caption, moodTags: imageAnalysis.moodTags, contentTags: imageAnalysis.contentTags, isNsfw: imageAnalysis.isNsfw, embedding })
+              .then(() => logger.info({ chatId, moodTags: imageAnalysis.moodTags, contentTags: imageAnalysis.contentTags, isNsfw: imageAnalysis.isNsfw }, "Image saved to DB with Ollama embedding"))
+              .catch((err) => logger.warn({ chatId, err }, "Failed to save Ollama image to DB"));
+          })();
+        } catch (ollamaErr) {
+          logger.error({ chatId, err: ollamaErr }, "Ollama fallback failed");
+          userMessage = "[User sent a photo, but it could not be analyzed — neither Gemini nor the local model could process it. React in your own style, don't just say sorry.]";
+        } finally {
+          if (processingMsg) {
+            ctx.api.deleteMessage(chatId, processingMsg.message_id).catch((err) => logger.debug({ chatId, err }, "deleteMessage (processing) failed"));
+          }
         }
       }
 
       const answer = await retry(() => askOpenRouter(ctx.from.id, userMessage), 3, 1500, "OpenRouter");
       await sendResponseWithImage(ctx, chatId, answer);
-      extractFacts(ctx.from.id).then(async (count) => {
-        if (count > 0) {
-          const note = await ctx.reply(randomFactSavedReply());
-          setTimeout(() => ctx.api.deleteMessage(chatId, note.message_id).catch(() => {}), 4000);
-        }
-      }).catch((err) => logger.warn({ chatId, err }, "Fact extraction failed"));
+      extractFacts(ctx.from.id)
+        .then(async (count) => {
+          if (count > 0) {
+            const note = await ctx.reply(randomFactSavedReply()).catch((err) => {
+              logger.warn({ chatId, err }, "Failed to send fact-saved notification");
+              return null;
+            });
+            if (note) {
+              setTimeout(() => ctx.api.deleteMessage(chatId, note.message_id).catch((err) => logger.debug({ chatId, err }, "deleteMessage (fact note) failed")), 4000);
+            }
+          }
+        })
+        .catch((err) => logger.warn({ chatId, err }, "Fact extraction failed"));
     } catch (err) {
       logger.error({ chatId, err }, "Photo handler error");
       await ctx.reply("Произошла ошибка при обработке запроса.").catch(() => {});

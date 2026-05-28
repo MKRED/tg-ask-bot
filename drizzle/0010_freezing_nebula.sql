@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "nsfw_enabled" boolean DEFAULT false NOT NULL;

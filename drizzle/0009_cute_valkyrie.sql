@@ -1,0 +1,1 @@
+ALTER TABLE "saved_images" ADD COLUMN "is_nsfw" boolean DEFAULT false NOT NULL;

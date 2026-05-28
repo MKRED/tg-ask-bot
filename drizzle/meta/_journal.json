@@ -64,6 +64,20 @@
       "when": 1779873140209,
       "tag": "0008_lively_stick",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1779952596453,
+      "tag": "0009_cute_valkyrie",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1779953554879,
+      "tag": "0010_freezing_nebula",
+      "breakpoints": true
     }
   ]
 }

@@ -24,10 +24,27 @@ export const BUSY_REPLIES = [
   "Обрабатываю. Пока жди — или напиши всё одним сообщением в следующий раз.",
 ];
 
+export const PROCESSING_REPLIES = [
+  "Щас гляну...",
+  "Подожди, смотрю что там",
+  "Секунду, локальная модель думает...",
+  "Запускаю тяжёлую артиллерию, подожди",
+  "Ок, разбираюсь...",
+  "Уже анализирую, не торопи",
+  "Дай подумаю что это такое...",
+  "Это займёт чуть больше времени, смотрю...",
+  "Гляжу, что тут нарисовано...",
+  "Секунду...",
+];
+
 export function randomBusyReply(): string {
   return BUSY_REPLIES[Math.floor(Math.random() * BUSY_REPLIES.length)];
 }
 
 export function randomFactSavedReply(): string {
   return FACT_SAVED_REPLIES[Math.floor(Math.random() * FACT_SAVED_REPLIES.length)];
+}
+
+export function randomProcessingReply(): string {
+  return PROCESSING_REPLIES[Math.floor(Math.random() * PROCESSING_REPLIES.length)];
 }

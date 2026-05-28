@@ -1,5 +1,6 @@
 import { generateEmbedding } from "../../ai/gemini";
 import { findSimilarImages } from "../../db/savedImages";
+import { getUserNsfwEnabled } from "../../db/users";
 import logger from "../../logger";
 import { MAX_MSG_LENGTH, MAX_CAPTION_LENGTH } from "../../constants";
 import type { BotResponse } from "../../types";
@@ -45,10 +46,14 @@ export async function sendResponseWithImage(ctx: any, chatId: number, answer: Bo
   const queryText = answer.imageTags.join(" ");
   logger.info({ chatId, tags: answer.imageTags }, "Searching similar image by embedding");
 
+  const nsfwEnabled = ctx.from?.id
+    ? await getUserNsfwEnabled(ctx.from.id).catch(() => false)
+    : false;
+
   let images: Awaited<ReturnType<typeof findSimilarImages>> = [];
   try {
     const embedding = await generateEmbedding(queryText);
-    images = await findSimilarImages(embedding);
+    images = await findSimilarImages(embedding, nsfwEnabled);
   } catch (err) {
     logger.warn({ chatId, err }, "Image retrieval failed, sending text only");
     await sendMessage(ctx, answer.text);
@@ -72,6 +77,6 @@ export async function sendResponseWithImage(ctx: any, chatId: number, answer: Bo
     }
   } else {
     await sendMessage(ctx, answer.text);
-    await ctx.replyWithPhoto(chosen.fileId).catch(() => {});
+    await ctx.replyWithPhoto(chosen.fileId).catch((err: unknown) => logger.warn({ chatId, err }, "replyWithPhoto failed after text"));
   }
 }

@@ -34,6 +34,15 @@ export async function upsertUser(from: TelegramFrom): Promise<User> {
   return user;
 }
 
+export async function getUserNsfwEnabled(telegramId: number): Promise<boolean> {
+  const [row] = await db
+    .select({ nsfwEnabled: users.nsfwEnabled })
+    .from(users)
+    .where(eq(users.telegramId, telegramId))
+    .limit(1);
+  return row?.nsfwEnabled ?? false;
+}
+
 export async function updateUserProfile(telegramId: number, profile: string): Promise<void> {
   await db
     .update(users)

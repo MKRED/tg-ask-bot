@@ -20,6 +20,7 @@ export const users = pgTable("users", {
   firstName: varchar("first_name", { length: 255 }),
   lastName: varchar("last_name", { length: 255 }),
   isBlocked: boolean("is_blocked").notNull().default(false),
+  nsfwEnabled: boolean("nsfw_enabled").notNull().default(false),
   requestCount: integer("request_count").notNull().default(0),
   profile: text("profile"),
   lastActiveAt: timestamp("last_active_at").notNull().defaultNow(),
@@ -71,6 +72,7 @@ export const savedImages = pgTable("saved_images", {
   caption: text("caption"),
   moodTags: text("mood_tags").array().notNull().default(sql`'{}'::text[]`),
   contentTags: text("content_tags").array().notNull().default(sql`'{}'::text[]`),
+  isNsfw: boolean("is_nsfw").notNull().default(false),
   embedding: vector("embedding", { dimensions: 3072 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

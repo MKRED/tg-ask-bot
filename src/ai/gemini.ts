@@ -47,6 +47,7 @@ export async function analyzeImage(fileUrl: string): Promise<ImageAnalysis> {
       { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
     ],
     generationConfig: {
+      thinkingConfig: { thinkingLevel: "low" },
       responseMimeType: "application/json",
       responseSchema: RESPONSE_SCHEMA,
     },
@@ -76,5 +77,6 @@ export async function analyzeImage(fileUrl: string): Promise<ImageAnalysis> {
     description: parsed.description,
     moodTags: parsed.mood_tags ?? [],
     contentTags: parsed.content_tags ?? [],
+    isNsfw: parsed.is_nsfw ?? false,
   };
 }

@@ -19,4 +19,6 @@ export const config = {
   inlineMenuMaxAgeMs: parseInt(
     process.env.INLINE_MENU_MAX_AGE_MS ?? String(24 * 60 * 60 * 1000)
   ),
+  ollamaUrl: process.env.OLLAMA_URL ?? "http://localhost:11434",
+  ollamaVisionModel: process.env.OLLAMA_VISION_MODEL ?? "gemma4-vision",
 };
