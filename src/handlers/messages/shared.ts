@@ -69,6 +69,7 @@ export async function sendResponseWithImage(ctx: any, chatId: number, answer: Bo
   const chosen = images[0];
   logger.info({ chatId, imageId: chosen.id, tags: answer.imageTags }, "Sending image with caption");
 
+  // Подписи к фото в Telegram ограничены 1024 символами; если текст длиннее — отправляем его отдельным сообщением
   if (answer.text.length <= MAX_CAPTION_LENGTH) {
     try {
       await ctx.replyWithPhoto(chosen.fileId, { caption: answer.text, parse_mode: "HTML" });

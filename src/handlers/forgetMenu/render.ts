@@ -46,12 +46,18 @@ export function buildConfirmKeyboard(page: number): InlineKeyboard {
     .text("❌ Отмена", `forget:page:${page}`);
 }
 
+const EXPIRED_TEXT: Record<string, string> = {
+  forget: "Меню устарело. /facts — открыть заново.",
+  account: "Меню устарело. /account — открыть заново.",
+};
+
 export async function disableMenu(api: Api, menu: InlineMenu, reason: "inactivity" | "max_age"): Promise<void> {
+  const text = EXPIRED_TEXT[menu.menuType] ?? "Меню устарело.";
   try {
     await api.editMessageText(
       menu.chatId,
       menu.messageId,
-      "Меню устарело. /facts — открыть заново."
+      text
     );
     logger.info(
       { userId: menu.userId, chatId: menu.chatId, messageId: menu.messageId, reason },

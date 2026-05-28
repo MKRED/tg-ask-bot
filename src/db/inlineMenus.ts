@@ -6,20 +6,21 @@ import type { InlineMenu } from "./schema";
 export async function createInlineMenu(
   userId: number,
   chatId: number,
-  messageId: number
+  messageId: number,
+  menuType: string = "forget"
 ): Promise<InlineMenu> {
   const [menu] = await db
     .insert(inlineMenus)
-    .values({ userId, chatId, messageId })
+    .values({ userId, chatId, messageId, menuType })
     .returning();
   return menu;
 }
 
-export async function getActiveMenuByUser(userId: number): Promise<InlineMenu | null> {
+export async function getActiveMenuByUser(userId: number, menuType: string): Promise<InlineMenu | null> {
   const [menu] = await db
     .select()
     .from(inlineMenus)
-    .where(eq(inlineMenus.userId, userId))
+    .where(and(eq(inlineMenus.userId, userId), eq(inlineMenus.menuType, menuType)))
     .limit(1);
   return menu ?? null;
 }

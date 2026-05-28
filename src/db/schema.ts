@@ -49,6 +49,7 @@ export const userFacts = pgTable("user_facts", {
 
 export const inlineMenus = pgTable("inline_menus", {
   id: serial("id").primaryKey(),
+  menuType: varchar("menu_type", { length: 50 }).notNull().default("forget"),
   userId: bigint("user_id", { mode: "number" }).notNull(),
   chatId: bigint("chat_id", { mode: "number" }).notNull(),
   messageId: bigint("message_id", { mode: "number" }).notNull(),

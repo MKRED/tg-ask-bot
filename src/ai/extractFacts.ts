@@ -17,6 +17,7 @@ export async function extractFacts(telegramId: number): Promise<number> {
     getUserFacts(telegramId),
   ]);
 
+  // LAST_EXCHANGES * 2: каждый обмен — это сообщение пользователя + ответ бота
   const recentMessages = history.slice(-(LAST_EXCHANGES * 2));
   if (recentMessages.length === 0) return 0;
 
@@ -45,6 +46,7 @@ export async function extractFacts(telegramId: number): Promise<number> {
   type FactOp = { key: string; value?: string; value_original?: string; action?: string };
   let ops: FactOp[];
   try {
+    // Модель иногда оборачивает JSON в markdown-блок кода — вытаскиваем только массив
     const match = raw.match(/\[[\s\S]*\]/);
     ops = JSON.parse(match ? match[0] : raw);
     if (!Array.isArray(ops)) return 0;

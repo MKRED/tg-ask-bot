@@ -11,6 +11,7 @@ export async function saveMessage(
   model?: string
 ): Promise<void> {
   await db.insert(messages).values({ userId: telegramId, role, content, model });
+  // После каждой вставки обрезаем историю, чтобы таблица не росла бесконечно
   await db.execute(sql`
     DELETE FROM messages
     WHERE user_id = ${telegramId}

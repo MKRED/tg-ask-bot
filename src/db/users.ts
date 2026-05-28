@@ -2,6 +2,24 @@ import { eq, sql } from "drizzle-orm";
 import { db } from "./index";
 import { users, type User } from "./schema";
 
+export async function getUser(telegramId: number): Promise<User | null> {
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.telegramId, telegramId))
+    .limit(1);
+  return user ?? null;
+}
+
+export async function toggleNsfwEnabled(telegramId: number): Promise<boolean> {
+  const [row] = await db
+    .update(users)
+    .set({ nsfwEnabled: sql`NOT ${users.nsfwEnabled}`, updatedAt: new Date() })
+    .where(eq(users.telegramId, telegramId))
+    .returning({ nsfwEnabled: users.nsfwEnabled });
+  return row?.nsfwEnabled ?? false;
+}
+
 interface TelegramFrom {
   id: number;
   username?: string;

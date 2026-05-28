@@ -1,0 +1,1 @@
+ALTER TABLE "inline_menus" ADD COLUMN "menu_type" varchar(50) DEFAULT 'forget' NOT NULL;

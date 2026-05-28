@@ -23,16 +23,17 @@ src/
     gemini.ts            — Gemini API: analyzeImage(), generateEmbedding(), GeminiBlockedError
     openrouter.ts        — OpenRouter chat: askOpenRouter(), clearHistory(), addToHistory()
     extractFacts.ts      — LLM fact extraction from conversation history
+    ollama.ts            — Ollama fallback: analyzeImageOllama() (used when Gemini blocks an image)
   db/
     index.ts             — drizzle DB client
     schema.ts            — all table definitions + exported types
     messages.ts          — save/get/clear chat history
-    users.ts             — upsertUser()
+    users.ts             — upsertUser(), getUser(), getUserNsfwEnabled(), toggleNsfwEnabled(), updateUserProfile()
     facts.ts             — user facts CRUD
-    savedImages.ts       — saveImage(), findSimilarImages() (pgvector cosine)
+    savedImages.ts       — saveImage(), findSimilarImages(), findImagesByTags(), countUserImages() (pgvector cosine)
     inlineMenus.ts       — inline keyboard menu state
   handlers/
-    commands.ts          — bot commands (/start, /clear, /facts, /help)
+    commands.ts          — bot commands (/start, /clear, /facts, /account, /help) + account:toggle_nsfw callback
     messages/
       index.ts           — registerMessageHandlers()
       text.ts            — text message handler
@@ -86,8 +87,16 @@ logger.info({ durationMs: Date.now() - t0, ...relevantFields }, "Operation compl
 - Never use an empty `catch {}` block — always log at minimum
 - For handlers: unexpected errors should be logged with `logger.error` and result in a user-facing reply
 
-### No unnecessary comments
-Only add a comment when the **why** is non-obvious (hidden constraint, workaround, subtle invariant). Never describe what the code does — names do that.
+### Comments — encouraged
+Add comments freely, especially in places with non-trivial logic. Preferred spots:
+- Complex conditionals or multi-step flows — explain the intent
+- Non-obvious constraints or invariants
+- Workarounds for external API quirks
+- Any place where a reader might ask "why is this done this way?"
+
+All comments must be written in **Russian**.
+
+Still avoid restating what the code obviously does — focus on the **why**, not the **what**.
 
 ### DB schema changes
 1. Edit `src/db/schema.ts`
@@ -134,6 +143,13 @@ Update this file whenever:
 Both files should reflect the **current state** of the project, not its history. If something is removed — remove it from the docs too.
 
 ## Key patterns
+
+**Inline menus must expire** — every inline keyboard menu must:
+1. Track its state in the `inline_menus` table via `createInlineMenu(userId, chatId, messageId, menuType)`
+2. On open: call `getActiveMenuByUser(userId, menuType)` and `disableMenu()` on any existing menu of the same type
+3. On callback: verify `menu.messageId === messageId`; if not — answer with "Меню устарело" and return
+4. Use a unique `menuType` string per menu kind (e.g. `"forget"`, `"account"`)
+5. Add its expired text to the `EXPIRED_TEXT` map in `forgetMenu/render.ts`
 
 **Retry wrapper** — use for all external calls that can transiently fail:
 ```typescript

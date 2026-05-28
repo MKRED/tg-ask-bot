@@ -1,7 +1,15 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import { db } from "./index";
 import { savedImages } from "./schema";
 import type { NewSavedImage, SavedImage } from "./schema";
+
+export async function countUserImages(userId: number): Promise<number> {
+  const [row] = await db
+    .select({ count: count() })
+    .from(savedImages)
+    .where(eq(savedImages.senderUserId, userId));
+  return row?.count ?? 0;
+}
 
 export async function saveImage(data: NewSavedImage): Promise<void> {
   await db.insert(savedImages).values(data);

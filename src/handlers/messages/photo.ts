@@ -23,9 +23,10 @@ export function registerPhotoHandler(bot: Bot): void {
 
     upsertUser(ctx.from).catch((err) => logger.error({ chatId, err }, "upsertUser failed"));
     processing.add(chatId);
-    ctx.api.sendChatAction(chatId, "typing").catch(() => {});
+    // Fire-and-forget: если упадёт — просто не покажется индикатор печатания
+    ctx.api.sendChatAction(chatId, "typing").catch((err) => logger.debug({ chatId, err }, "sendChatAction failed"));
     const typingInterval = setInterval(() => {
-      ctx.api.sendChatAction(chatId, "typing").catch(() => {});
+      ctx.api.sendChatAction(chatId, "typing").catch((err) => logger.debug({ chatId, err }, "sendChatAction interval failed"));
     }, 4000);
 
     try {
@@ -47,6 +48,7 @@ export function registerPhotoHandler(bot: Bot): void {
           : `[User sent a photo without caption]\n\n[Photo: ${imageAnalysis.description}]`;
 
         const embeddingText = `${imageAnalysis.description} ${[...imageAnalysis.moodTags, ...imageAnalysis.contentTags].join(" ")}`;
+        // Fire-and-forget: генерация эмбеддинга и сохранение в БД выполняются в фоне после отправки ответа
         (async () => {
           let embedding: number[];
           try {
@@ -67,7 +69,7 @@ export function registerPhotoHandler(bot: Bot): void {
           logger.warn({ chatId, err: geminiErr }, "Gemini failed, falling back to Ollama");
         }
 
-        const processingMsg = await ctx.reply(randomProcessingReply()).catch(() => null);
+        const processingMsg = await ctx.reply(randomProcessingReply()).catch((err) => { logger.warn({ chatId, err }, "Failed to send processing message"); return null; });
         try {
           const imageAnalysis = await analyzeImageOllama(fileUrl);
           const caption = ctx.message.caption ?? null;
@@ -76,6 +78,7 @@ export function registerPhotoHandler(bot: Bot): void {
             : `[User sent a photo without caption]\n\n[Photo: ${imageAnalysis.description}]`;
 
           const embeddingText = `${imageAnalysis.description} ${[...imageAnalysis.moodTags, ...imageAnalysis.contentTags].join(" ")}`;
+          // Fire-and-forget: генерация эмбеддинга и сохранение в БД выполняются в фоне после отправки ответа
           (async () => {
             let embedding: number[];
             try {
@@ -115,7 +118,7 @@ export function registerPhotoHandler(bot: Bot): void {
         .catch((err) => logger.warn({ chatId, err }, "Fact extraction failed"));
     } catch (err) {
       logger.error({ chatId, err }, "Photo handler error");
-      await ctx.reply("Произошла ошибка при обработке запроса.").catch(() => {});
+      await ctx.reply("Произошла ошибка при обработке запроса.").catch((err) => logger.warn({ chatId, err }, "Failed to send error reply"));
       throw err;
     } finally {
       clearInterval(typingInterval);

@@ -23,7 +23,7 @@ export async function sendForgetMenu(ctx: Context): Promise<void> {
   const userId = ctx.from!.id;
   const chatId = ctx.chat!.id;
 
-  const existing = await getActiveMenuByUser(userId);
+  const existing = await getActiveMenuByUser(userId, "forget");
   if (existing) {
     await disableMenu(ctx.api, existing, "inactivity");
   }
@@ -39,7 +39,7 @@ export async function sendForgetMenu(ctx: Context): Promise<void> {
     reply_markup: buildMenuKeyboard(facts, 0),
   });
 
-  await createInlineMenu(userId, chatId, msg.message_id);
+  await createInlineMenu(userId, chatId, msg.message_id, "forget");
   logger.info({ userId, chatId, messageId: msg.message_id, factsCount: facts.length }, "menu_created");
 }
 
@@ -54,7 +54,8 @@ export function registerForgetCallbacks(bot: Bot): void {
       return;
     }
 
-    const menu = await getActiveMenuByUser(userId);
+    const menu = await getActiveMenuByUser(userId, "forget");
+    // Несоответствие messageId означает, что кнопка принадлежит старому, уже замененному меню
     if (!menu || menu.messageId !== messageId) {
       await ctx.answerCallbackQuery("Меню устарело. Открой /forget заново.");
       return;

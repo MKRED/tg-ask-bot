@@ -19,9 +19,10 @@ export function registerTextHandler(bot: Bot): void {
 
     upsertUser(ctx.from).catch((err) => logger.error({ chatId, err }, "upsertUser failed"));
     processing.add(chatId);
-    ctx.api.sendChatAction(chatId, "typing").catch(() => {});
+    // Fire-and-forget: если упадёт — просто не покажется индикатор печатания
+    ctx.api.sendChatAction(chatId, "typing").catch((err) => logger.debug({ chatId, err }, "sendChatAction failed"));
     const typingInterval = setInterval(() => {
-      ctx.api.sendChatAction(chatId, "typing").catch(() => {});
+      ctx.api.sendChatAction(chatId, "typing").catch((err) => logger.debug({ chatId, err }, "sendChatAction interval failed"));
     }, 4000);
 
     try {
@@ -42,7 +43,7 @@ export function registerTextHandler(bot: Bot): void {
         .catch((err) => logger.warn({ chatId, err }, "Fact extraction failed"));
     } catch (err) {
       logger.error({ chatId, err }, "OpenRouter error");
-      await ctx.reply("Произошла ошибка при обращении к AI.").catch(() => {});
+      await ctx.reply("Произошла ошибка при обращении к AI.").catch((err) => logger.warn({ chatId, err }, "Failed to send error reply"));
       throw err;
     } finally {
       clearInterval(typingInterval);

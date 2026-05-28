@@ -78,6 +78,13 @@
       "when": 1779953554879,
       "tag": "0010_freezing_nebula",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1779956512254,
+      "tag": "0011_nosy_deadpool",
+      "breakpoints": true
     }
   ]
 }

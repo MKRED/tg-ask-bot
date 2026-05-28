@@ -21,6 +21,7 @@ export async function upsertUserFact(
     .limit(1);
 
   if (existing.length === 0) {
+    // Достигнут лимит фактов: вытесняем наименее свежий, чтобы освободить место (LRU)
     const [{ total }] = await db
       .select({ total: count() })
       .from(userFacts)

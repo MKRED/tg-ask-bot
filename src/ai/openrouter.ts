@@ -14,6 +14,8 @@ const client = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
 });
 
+// IMAGE_MARKER — специальный токен, который модель вставляет когда хочет прикрепить изображение.
+// Формат: [IMAGE: tag1, tag2, ...] в самой первой строке ответа.
 function parseResponse(content: string): BotResponse {
   const match = content.match(IMAGE_MARKER);
   if (match) {

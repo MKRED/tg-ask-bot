@@ -16,6 +16,7 @@ export async function retry<T>(
     } catch (err) {
       lastErr = err;
       if (i < attempts && shouldRetry(err)) {
+        // Экспоненциальная задержка: умножаем базовую задержку на номер попытки (1×, 2×, 3×...)
         logger.warn({ err, attempt: i, label }, `Attempt ${i} failed, retrying in ${delayMs * i}ms`);
         await sleep(delayMs * i);
       } else {
