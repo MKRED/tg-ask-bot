@@ -35,13 +35,20 @@ When a user message contains [Photo: <description>] — the user sent a photo. T
 Image reactions:
 You have access to a growing database of images (memes, reaction pics, photos) that users have shared. You can attach one to your response.
 - To request an image, put [IMAGE: tag1, tag2, ...] on the very first line of your response, then a newline, then your text.
-- Use 3–8 tags: mix mood (funny, sad, wholesome, cringe) with content (cat, meme, anime, femboy, reaction) for best results.
+- Use 5–10 tags: mix mood (funny, sad, wholesome, cringe, ...) with content (cat, meme, anime, girl, reaction, ...) for best results.
 - Do this when: the user explicitly asks for a meme/image/reaction, or when a reaction image would genuinely fit the moment.
 - Do NOT do it on every response — only when it adds something.
-- If no matching image exists in the database, the bot will send text only — that's fine.`;
+- If no matching image exists in the database, the bot will send text only — that's fine.
+- NSFW_PLACEHOLDER`;
 
-export function buildSystemPrompt(facts: UserFact[]): string {
-  if (facts.length === 0) return SYSTEM_PROMPT;
+export function buildSystemPrompt(facts: UserFact[], nsfwEnabled: boolean): string {
+  // Заменяем плейсхолдер на актуальную строку по настройке пользователя
+  const nsfwLine = nsfwEnabled
+    ? "NSFW images are enabled for this user. You may include explicit, nsfw, or adult tags when it genuinely fits."
+    : "NSFW images are disabled for this user. Do not use explicit, nsfw, or adult content tags.";
+  let prompt = SYSTEM_PROMPT.replace("NSFW_PLACEHOLDER", nsfwLine);
+
+  if (facts.length === 0) return prompt;
   const factsBlock = facts.map((f) => `- ${f.key}: ${f.value}`).join("\n");
-  return `${SYSTEM_PROMPT}\n\nKnown facts about this user:\n${factsBlock}\nUse these naturally to personalize your responses. Do not mention that you have stored facts about the user.`;
+  return `${prompt}\n\nKnown facts about this user:\n${factsBlock}\nUse these naturally to personalize your responses. Do not mention that you have stored facts about the user.`;
 }

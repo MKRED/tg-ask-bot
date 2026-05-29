@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { config } from "../config";
 import { saveMessage, getHistory, clearMessages } from "../db/messages";
 import { getUserFacts } from "../db/facts";
+import { getUserNsfwEnabled } from "../db/users";
 import logger from "../logger";
 import { IMAGE_MARKER } from "../constants";
 import { buildSystemPrompt } from "../prompts/conversation";
@@ -42,8 +43,12 @@ export async function addToHistory(
 
 export async function askOpenRouter(telegramId: number, userMessage: string): Promise<BotResponse> {
   await saveMessage(telegramId, "user", userMessage);
-  const [history, facts] = await Promise.all([getHistory(telegramId), getUserFacts(telegramId)]);
-  const systemPrompt = buildSystemPrompt(facts);
+  const [history, facts, nsfwEnabled] = await Promise.all([
+    getHistory(telegramId),
+    getUserFacts(telegramId),
+    getUserNsfwEnabled(telegramId),
+  ]);
+  const systemPrompt = buildSystemPrompt(facts, nsfwEnabled);
 
   const t0 = Date.now();
   const response = await client.chat.completions.create({
