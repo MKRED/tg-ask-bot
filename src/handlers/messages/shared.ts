@@ -5,7 +5,11 @@ import logger from "../../logger";
 import { MAX_MSG_LENGTH, MAX_CAPTION_LENGTH } from "../../constants";
 import type { BotResponse } from "../../types";
 
-export const processing = new Set<number>();
+export const processing = new Set<string>();
+
+export function processingKey(chatId: number, threadId = 0): string {
+  return `${chatId}:${threadId}`;
+}
 
 export function splitMessage(text: string): string[] {
   if (text.length <= MAX_MSG_LENGTH) return [text];
@@ -30,7 +34,8 @@ export async function sendMessage(ctx: any, text: string): Promise<void> {
   for (const part of parts) {
     try {
       await ctx.reply(part, { parse_mode: "HTML" });
-    } catch {
+    } catch (htmlErr) {
+      logger.warn({ chatId: ctx.chat.id, err: htmlErr }, "HTML parse_mode failed, retrying as plain text");
       await ctx.reply(part);
     }
   }

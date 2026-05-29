@@ -17,7 +17,7 @@ const client = new OpenAI({
 
 // IMAGE_MARKER — специальный токен, который модель вставляет когда хочет прикрепить изображение.
 // Формат: [IMAGE: tag1, tag2, ...] в самой первой строке ответа.
-function parseResponse(content: string): BotResponse {
+export function parseResponse(content: string): BotResponse {
   const match = content.match(IMAGE_MARKER);
   if (match) {
     const tags = match[1].split(",").map((t) => t.trim()).filter(Boolean);

@@ -8,21 +8,23 @@ import logger from "../../logger";
 import { retry } from "../../utils/retry";
 import { upsertUser } from "../../db/users";
 import { saveImage } from "../../db/savedImages";
-import { processing, sendResponseWithImage } from "./shared";
+import { processing, processingKey, sendResponseWithImage } from "./shared";
 import { randomBusyReply, randomFactSavedReply, randomProcessingReply } from "../../strings/replies";
 
 export function registerPhotoHandler(bot: Bot): void {
-  bot.on("message:photo", async (ctx) => {
+  bot.chatType("private").on("message:photo", async (ctx) => {
+
     const chatId = ctx.chat.id;
     logger.info({ chatId }, "Photo message received");
 
-    if (processing.has(chatId)) {
+    const key = processingKey(chatId);
+    if (processing.has(key)) {
       await ctx.reply(randomBusyReply(), { reply_parameters: { message_id: ctx.message.message_id } });
       return;
     }
 
     upsertUser(ctx.from).catch((err) => logger.error({ chatId, err }, "upsertUser failed"));
-    processing.add(chatId);
+    processing.add(key);
     // Fire-and-forget: если упадёт — просто не покажется индикатор печатания
     ctx.api.sendChatAction(chatId, "typing").catch((err) => logger.debug({ chatId, err }, "sendChatAction failed"));
     const typingInterval = setInterval(() => {
@@ -122,7 +124,7 @@ export function registerPhotoHandler(bot: Bot): void {
       throw err;
     } finally {
       clearInterval(typingInterval);
-      processing.delete(chatId);
+      processing.delete(key);
     }
   });
 }

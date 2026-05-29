@@ -24,6 +24,7 @@ const logger = pino(
         },
       }
     : {
+        level: "debug",
         transport: rollOptions,
       }
 );

@@ -80,3 +80,45 @@ export const savedImages = pgTable("saved_images", {
 
 export type SavedImage = typeof savedImages.$inferSelect;
 export type NewSavedImage = typeof savedImages.$inferInsert;
+
+// Группы, в которых состоит бот
+export const groupChats = pgTable("group_chats", {
+  id: serial("id").primaryKey(),
+  chatId: bigint("chat_id", { mode: "number" }).notNull().unique(),
+  title: varchar("title", { length: 255 }),
+  type: varchar("type", { length: 20 }).notNull(), // 'group' | 'supergroup'
+  topicsEnabled: boolean("topics_enabled").notNull().default(false),
+  nsfwEnabled: boolean("nsfw_enabled").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Whitelist разрешённых тредов; threadId=0 означает всю группу без тем
+export const groupEnabledThreads = pgTable("group_enabled_threads", {
+  id: serial("id").primaryKey(),
+  chatId: bigint("chat_id", { mode: "number" }).notNull(),
+  threadId: bigint("thread_id", { mode: "number" }).notNull().default(0),
+  enabledBy: bigint("enabled_by", { mode: "number" }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [unique().on(table.chatId, table.threadId)]);
+
+// Скользящая история разговора для групп
+export const groupMessageBuffer = pgTable("group_message_buffer", {
+  id: serial("id").primaryKey(),
+  chatId: bigint("chat_id", { mode: "number" }).notNull(),
+  threadId: bigint("thread_id", { mode: "number" }).notNull().default(0),
+  senderUserId: bigint("sender_user_id", { mode: "number" }),
+  senderName: varchar("sender_name", { length: 255 }).notNull(),
+  senderUsername: varchar("sender_username", { length: 255 }),
+  content: text("content").notNull(),
+  isBot: boolean("is_bot").notNull().default(false),
+  isForward: boolean("is_forward").notNull().default(false),
+  forwardFrom: text("forward_from"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type GroupChat = typeof groupChats.$inferSelect;
+export type NewGroupChat = typeof groupChats.$inferInsert;
+export type GroupEnabledThread = typeof groupEnabledThreads.$inferSelect;
+export type GroupMessageBuffer = typeof groupMessageBuffer.$inferSelect;
+export type NewGroupMessageBuffer = typeof groupMessageBuffer.$inferInsert;

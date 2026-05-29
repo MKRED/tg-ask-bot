@@ -3,8 +3,10 @@ import { bot } from "./bot";
 import { registerCommands } from "./handlers/commands";
 import { registerMessageHandlers } from "./handlers/messages/index";
 import { registerForgetCallbacks, startMenuCleanupScheduler } from "./handlers/forgetMenu/index";
+import { registerMyChatMemberHandler } from "./handlers/myChatMember";
 import logger from "./logger";
 
+registerMyChatMemberHandler(bot);
 registerCommands(bot);
 registerForgetCallbacks(bot);
 registerMessageHandlers(bot);
