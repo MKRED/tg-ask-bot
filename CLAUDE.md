@@ -62,7 +62,7 @@ src/
     index.ts             — barrel export
   constants/
     ai.constants.ts      — LAST_EXCHANGES, IMAGE_MARKER
-    db.constants.ts      — MAX_HISTORY_MESSAGES, MAX_FACTS, GROUP_BUFFER_SIZE, GROUP_DECISION_MSGS, GROUP_FULL_CONTEXT_SIZE
+    db.constants.ts      — MAX_HISTORY_MESSAGES, MAX_STORED_MESSAGES, MAX_FACTS, GROUP_BUFFER_SIZE, GROUP_DECISION_MSGS, GROUP_FULL_CONTEXT_SIZE
     ui.constants.ts      — MAX_MSG_LENGTH, FACTS_PER_PAGE, CLEANUP_INTERVAL_MS, GROUP_MSG_TIMEZONE
     index.ts             — barrel export
   strings/
@@ -97,6 +97,7 @@ logger.info({ durationMs: Date.now() - t0, ...relevantFields }, "Operation compl
 - Fire-and-forget chains (`.then().catch()`) must always end with `.catch((err) => logger.warn({ err, ...ctx }, "what failed"))`
 - Never use an empty `catch {}` block — always log at minimum
 - For handlers: unexpected errors should be logged with `logger.error` and result in a user-facing reply
+- **Exception — group handlers** (`groupText.ts`, `groupPhoto.ts`): on error, log with `logger.error` but do **not** send a user-facing reply. The bot is one of many participants in a shared chat, so surfacing every internal error would spam the group. Errors stay in the logs only.
 
 ### Comments — encouraged
 Add comments freely, especially in places with non-trivial logic. Preferred spots:
@@ -181,8 +182,8 @@ someAsyncWork()
 **Group chat flow** — two-step LLM for groups:
 1. `appendToBuffer()` — always, **before** acquiring the lock, so messages are never lost even if bot is busy
 2. Check `processing.has(key)` — if locked, return silently
-3. `checkShouldRespond()` (decision LLM, last `GROUP_DECISION_MSGS` messages, no reasoning) — skip if `isReplyToBot`
-4. `askGroupChat()` (full LLM, last `GROUP_FULL_CONTEXT_SIZE` messages, with reasoning)
+3. `checkShouldRespond()` (decision LLM, last `GROUP_DECISION_MSGS` messages, low reasoning effort, no retry) — skip if `isReplyToBot`
+4. `askGroupChat()` (full LLM, last `GROUP_FULL_CONTEXT_SIZE` messages, with reasoning `effort: high`)
 5. `processing.delete(key)` in `finally`
 
 Bot response is saved to buffer inside `askGroupChat()` as fire-and-forget (DB failure must not block sending).

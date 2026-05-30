@@ -68,9 +68,9 @@ export function registerGroupTextHandler(bot: Bot): void {
       const nsfwEnabled = await getGroupNsfwEnabled(chatId);
       const answer = await retry(
         () => askGroupChat({ chatId, threadId, fullBuffer, nsfwEnabled }),
-        3, 1500, "OpenRouter-group"
+        2, 1500, "OpenRouter-group"
       );
-      await sendResponseWithImage(ctx, chatId, answer);
+      await sendResponseWithImage(ctx, chatId, answer, nsfwEnabled);
     } catch (err) {
       logger.error({ chatId, threadId, err }, "Group text handler error");
     } finally {

@@ -37,6 +37,10 @@ export async function appendToBuffer(opts: AppendOpts): Promise<void> {
 
 export async function getBuffer(chatId: number, threadId: number, limit: number): Promise<GroupMessageBuffer[]> {
   // Берём последние N записей через DESC + реверс, как в messages.ts
+  // ВНИМАНИЕ: сортировка только по created_at. При одинаковом таймстампе у двух сообщений
+  // (две почти одновременные записи) их порядок не детерминирован — модель может увидеть реплики
+  // в перевёрнутом виде. Точность timestamp микросекундная, поэтому риск низкий и пока не правим.
+  // Полный фикс — добавить id вторым ключом сортировки (ORDER BY created_at, id).
   const rows = await db
     .select()
     .from(groupMessageBuffer)
@@ -48,6 +52,8 @@ export async function getBuffer(chatId: number, threadId: number, limit: number)
 
 export async function pruneBuffer(chatId: number, threadId: number): Promise<void> {
   // Удаляем старые строки, оставляя последние GROUP_BUFFER_SIZE на тред
+  // Тот же нюанс с сортировкой по created_at, что и в getBuffer: при равных таймстампах
+  // может удалиться «не та» строка. При буфере 1000 обрезка срабатывает редко, так что некритично.
   const t0 = Date.now();
   await db.execute(sql`
     DELETE FROM group_message_buffer

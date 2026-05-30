@@ -21,4 +21,7 @@ export const config = {
   ),
   ollamaUrl: process.env.OLLAMA_URL ?? "http://localhost:11434",
   ollamaVisionModel: process.env.OLLAMA_VISION_MODEL ?? "gemma4-vision",
+  // Уровень логирования. По умолчанию info, чтобы в проде не раздувать логи debug-записями
+  // (appendToBuffer/pruneBuffer пишут debug на каждое сообщение). На время тестирования — LOG_LEVEL=debug.
+  logLevel: process.env.LOG_LEVEL ?? "info",
 };

@@ -42,7 +42,15 @@ export async function sendMessage(ctx: any, text: string): Promise<void> {
   logger.info({ chatId: ctx.chat.id, durationMs: Date.now() - t0, parts: parts.length }, "Telegram sendMessage completed");
 }
 
-export async function sendResponseWithImage(ctx: any, chatId: number, answer: BotResponse): Promise<void> {
+// nsfwEnabledOverride — флаг фильтрации NSFW для поиска картинок.
+// Если не передан (личные сообщения) — берём персональную настройку отправителя.
+// В группах вызывающий обязан передать настройку группы (getGroupNsfwEnabled), а не настройку конкретного юзера.
+export async function sendResponseWithImage(
+  ctx: any,
+  chatId: number,
+  answer: BotResponse,
+  nsfwEnabledOverride?: boolean
+): Promise<void> {
   if (!answer.imageTags || answer.imageTags.length === 0) {
     await sendMessage(ctx, answer.text);
     return;
@@ -51,9 +59,11 @@ export async function sendResponseWithImage(ctx: any, chatId: number, answer: Bo
   const queryText = answer.imageTags.join(" ");
   logger.info({ chatId, tags: answer.imageTags }, "Searching similar image by embedding");
 
-  const nsfwEnabled = ctx.from?.id
-    ? await getUserNsfwEnabled(ctx.from.id).catch(() => false)
-    : false;
+  const nsfwEnabled = nsfwEnabledOverride !== undefined
+    ? nsfwEnabledOverride
+    : ctx.from?.id
+      ? await getUserNsfwEnabled(ctx.from.id).catch(() => false)
+      : false;
 
   let images: Awaited<ReturnType<typeof findSimilarImages>> = [];
   try {

@@ -4,7 +4,6 @@ import { formatBufferForLLM } from "../utils/groupFormat";
 import { GROUP_DECISION_PROMPT } from "../prompts/groupDecision";
 import type { GroupMessageBuffer } from "../db/schema";
 import logger from "../logger";
-import { retry } from "../utils/retry";
 
 const client = new OpenAI({
   apiKey: config.openrouterApiKey,
@@ -23,19 +22,21 @@ export async function checkShouldRespond(
   const t0 = Date.now();
 
   try {
-    const response = await retry(
-      () => client.chat.completions.create({
-        model: config.openrouterModel,
-        messages: [
-          { role: "system", content: GROUP_DECISION_PROMPT },
-          { role: "user", content: conversationText },
-        ],
-        // max_tokens: 2000 — reasoning-модель (deepseek) тратит токены на thinking перед ответом,
-        // при малом лимите весь бюджет уходил на reasoning и content оставался пустым
-        max_tokens: 2000,
-      } as any),
-      3, 1500, "GroupDecision"
-    );
+    // Без retry: decision вызывается под локом, а сбой/таймаут просто означает "бот промолчит".
+    // Ретраить решение «стоит ли вообще отвечать» — лишняя задержка под локом при нулевой пользе.
+    const response = await client.chat.completions.create({
+      model: config.openrouterModel,
+      messages: [
+        { role: "system", content: GROUP_DECISION_PROMPT },
+        { role: "user", content: conversationText },
+      ],
+      // effort: "low" — decision это тривиальная бинарная классификация, полноценный CoT ей не нужен;
+      // низкий effort срезает reasoning-токены и латентность (вызов идёт под локом).
+      reasoning: { effort: "low" },
+      // max_tokens оставлен с запасом: deepseek тратит токены на thinking перед ответом,
+      // при малом лимите весь бюджет уходил на reasoning и content оставался пустым
+      max_tokens: 1000,
+    } as any);
 
     const message = response.choices[0]?.message;
     const content = message?.content ?? "";

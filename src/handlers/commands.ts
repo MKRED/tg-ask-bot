@@ -1,4 +1,4 @@
-import { Bot, InlineKeyboard } from "grammy";
+import { Bot, InlineKeyboard, type Context } from "grammy";
 import { clearHistory } from "../ai/openrouter";
 import { sendForgetMenu } from "./forgetMenu/index";
 import { disableMenu } from "./forgetMenu/render";
@@ -8,6 +8,30 @@ import { createInlineMenu, getActiveMenuByUser } from "../db/inlineMenus";
 import { enableThread, disableThread } from "../db/groupEnabledThreads";
 import logger from "../logger";
 import type { User } from "../db/schema";
+
+// Проверка прав для групповых команд (/botstart, /botstop): команда работает только в группе
+// и только для администраторов/создателя. На любой неуспех сам отправляет ответ и возвращает false.
+async function ensureGroupAdmin(ctx: Context, label: string): Promise<boolean> {
+  const chatType = ctx.chat?.type;
+  if (chatType !== "group" && chatType !== "supergroup") {
+    await ctx.reply("Эта команда доступна только в группах.");
+    return false;
+  }
+
+  try {
+    const member = await ctx.getChatMember(ctx.from!.id);
+    if (!["administrator", "creator"].includes(member.status)) {
+      await ctx.reply("Только администраторы могут управлять ботом.");
+      return false;
+    }
+  } catch (err) {
+    logger.warn({ chatId: ctx.chat!.id, userId: ctx.from!.id, err }, `${label}: getChatMember failed`);
+    await ctx.reply("Не удалось проверить права. Попробуйте снова.");
+    return false;
+  }
+
+  return true;
+}
 
 function buildAccountText(user: User, photoCount: number): string {
   const name = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username || "Неизвестно";
@@ -95,24 +119,11 @@ export function registerCommands(bot: Bot): void {
   });
 
   bot.command("botstart", async (ctx) => {
-    const chatType = ctx.chat?.type;
-    if (chatType !== "group" && chatType !== "supergroup") {
-      return ctx.reply("Эта команда доступна только в группах.");
-    }
+    if (!(await ensureGroupAdmin(ctx, "botstart"))) return;
+
     const userId = ctx.from!.id;
-    const chatId = ctx.chat.id;
+    const chatId = ctx.chat!.id;
     const t0 = Date.now();
-
-    try {
-      const member = await ctx.getChatMember(userId);
-      if (!["administrator", "creator"].includes(member.status)) {
-        return ctx.reply("Только администраторы могут управлять ботом.");
-      }
-    } catch (err) {
-      logger.warn({ chatId, userId, err }, "botstart: getChatMember failed");
-      return ctx.reply("Не удалось проверить права. Попробуйте снова.");
-    }
-
     const threadId = ctx.message?.message_thread_id ?? 0;
     await enableThread(chatId, threadId, userId);
     logger.info({ chatId, threadId, userId, durationMs: Date.now() - t0 }, "Bot enabled in thread");
@@ -120,24 +131,11 @@ export function registerCommands(bot: Bot): void {
   });
 
   bot.command("botstop", async (ctx) => {
-    const chatType = ctx.chat?.type;
-    if (chatType !== "group" && chatType !== "supergroup") {
-      return ctx.reply("Эта команда доступна только в группах.");
-    }
+    if (!(await ensureGroupAdmin(ctx, "botstop"))) return;
+
     const userId = ctx.from!.id;
-    const chatId = ctx.chat.id;
+    const chatId = ctx.chat!.id;
     const t0 = Date.now();
-
-    try {
-      const member = await ctx.getChatMember(userId);
-      if (!["administrator", "creator"].includes(member.status)) {
-        return ctx.reply("Только администраторы могут управлять ботом.");
-      }
-    } catch (err) {
-      logger.warn({ chatId, userId, err }, "botstop: getChatMember failed");
-      return ctx.reply("Не удалось проверить права. Попробуйте снова.");
-    }
-
     const threadId = ctx.message?.message_thread_id ?? 0;
     await disableThread(chatId, threadId);
     logger.info({ chatId, threadId, userId, durationMs: Date.now() - t0 }, "Bot disabled in thread");

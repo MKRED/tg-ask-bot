@@ -14,6 +14,16 @@ export class GeminiBlockedError extends Error {
 
 export type { ImageAnalysis };
 
+// finishReason'ы, означающие, что контент заблокирован моделью на этапе
+// генерации (не сетевая ошибка) — ретраить их бессмысленно.
+const BLOCKING_FINISH_REASONS = new Set([
+  "PROHIBITED_CONTENT",
+  "SAFETY",
+  "BLOCKLIST",
+  "SPII",
+  "RECITATION",
+]);
+
 const GEMINI_MODEL = "gemini-3.1-flash-lite";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${config.geminiApiKey}`;
 
@@ -65,6 +75,15 @@ export async function analyzeImage(fileUrl: string): Promise<ImageAnalysis> {
 
   const blockReason = data?.promptFeedback?.blockReason;
   if (blockReason) throw new GeminiBlockedError(blockReason);
+
+  // Gemini может заблокировать не на этапе промпта, а на этапе генерации —
+  // тогда blockReason пустой, а причина приходит в candidate.finishReason.
+  // Такие ответы детерминированы: ретрай вернёт то же самое, поэтому бросаем
+  // GeminiBlockedError, чтобы retry() сразу ушёл в Ollama-фолбэк без повторов.
+  const finishReason = data?.candidates?.[0]?.finishReason;
+  if (finishReason && BLOCKING_FINISH_REASONS.has(finishReason)) {
+    throw new GeminiBlockedError(finishReason);
+  }
 
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error(`Gemini error: ${JSON.stringify(data)}`);

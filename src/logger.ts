@@ -1,5 +1,6 @@
 import pino from "pino";
 import fs from "fs";
+import { config } from "./config";
 
 fs.mkdirSync("logs", { recursive: true });
 
@@ -18,13 +19,13 @@ const logger = pino(
     ? {
         transport: {
           targets: [
-            { target: "pino-pretty", options: { colorize: true }, level: "debug" },
-            { ...rollOptions, level: "debug" },
+            { target: "pino-pretty", options: { colorize: true }, level: config.logLevel },
+            { ...rollOptions, level: config.logLevel },
           ],
         },
       }
     : {
-        level: "debug",
+        level: config.logLevel,
         transport: rollOptions,
       }
 );

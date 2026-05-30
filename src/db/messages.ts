@@ -2,7 +2,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import { db } from "./index";
 import { messages } from "./schema";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
-import { MAX_HISTORY_MESSAGES } from "../constants";
+import { MAX_HISTORY_MESSAGES, MAX_STORED_MESSAGES } from "../constants";
 
 export async function saveMessage(
   telegramId: number,
@@ -11,7 +11,8 @@ export async function saveMessage(
   model?: string
 ): Promise<void> {
   await db.insert(messages).values({ userId: telegramId, role, content, model });
-  // После каждой вставки обрезаем историю, чтобы таблица не росла бесконечно
+  // После каждой вставки обрезаем историю, чтобы таблица не росла бесконечно.
+  // Храним до MAX_STORED_MESSAGES, хотя в контекст ответа уходит только MAX_HISTORY_MESSAGES.
   await db.execute(sql`
     DELETE FROM messages
     WHERE user_id = ${telegramId}
@@ -19,7 +20,7 @@ export async function saveMessage(
       SELECT id FROM messages
       WHERE user_id = ${telegramId}
       ORDER BY created_at DESC
-      LIMIT ${MAX_HISTORY_MESSAGES}
+      LIMIT ${MAX_STORED_MESSAGES}
     )
   `);
 }

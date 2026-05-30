@@ -11,7 +11,7 @@ import logger from "../logger";
 const client = new OpenAI({
   apiKey: config.openrouterApiKey,
   baseURL: "https://openrouter.ai/api/v1",
-  timeout: 90_000,
+  timeout: 60_000,
 });
 
 interface GroupChatOpts {
