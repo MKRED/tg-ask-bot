@@ -27,7 +27,11 @@ interface TelegramFrom {
   last_name?: string;
 }
 
-export async function upsertUser(from: TelegramFrom): Promise<User> {
+// incrementRequestCount инкрементируем только для общения в ЛС — групповые сообщения не должны увеличивать счётчик
+export async function upsertUser(
+  from: TelegramFrom,
+  incrementRequestCount = false,
+): Promise<User> {
   const [user] = await db
     .insert(users)
     .values({
@@ -42,7 +46,9 @@ export async function upsertUser(from: TelegramFrom): Promise<User> {
         username: from.username ?? null,
         firstName: from.first_name ?? null,
         lastName: from.last_name ?? null,
-        requestCount: sql`${users.requestCount} + 1`,
+        requestCount: incrementRequestCount
+          ? sql`${users.requestCount} + 1`
+          : sql`${users.requestCount}`,
         lastActiveAt: new Date(),
         updatedAt: new Date(),
       },

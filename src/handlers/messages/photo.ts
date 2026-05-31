@@ -23,7 +23,7 @@ export function registerPhotoHandler(bot: Bot): void {
       return;
     }
 
-    upsertUser(ctx.from).catch((err) => logger.error({ chatId, err }, "upsertUser failed"));
+    upsertUser(ctx.from, true).catch((err) => logger.error({ chatId, err }, "upsertUser failed"));
     processing.add(key);
     // Fire-and-forget: если упадёт — просто не покажется индикатор печатания
     ctx.api.sendChatAction(chatId, "typing").catch((err) => logger.debug({ chatId, err }, "sendChatAction failed"));
