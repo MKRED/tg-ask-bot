@@ -1,12 +1,37 @@
-import { Bot, InlineKeyboard } from "grammy";
+import { Bot, InlineKeyboard, type Context } from "grammy";
 import { clearHistory } from "../ai/openrouter";
 import { sendForgetMenu } from "./forgetMenu/index";
 import { disableMenu } from "./forgetMenu/render";
 import { getUser, toggleNsfwEnabled } from "../db/users";
 import { countUserImages } from "../db/savedImages";
 import { createInlineMenu, getActiveMenuByUser } from "../db/inlineMenus";
+import { enableThread, disableThread } from "../db/groupEnabledThreads";
 import logger from "../logger";
 import type { User } from "../db/schema";
+
+// Проверка прав для групповых команд (/botstart, /botstop): команда работает только в группе
+// и только для администраторов/создателя. На любой неуспех сам отправляет ответ и возвращает false.
+async function ensureGroupAdmin(ctx: Context, label: string): Promise<boolean> {
+  const chatType = ctx.chat?.type;
+  if (chatType !== "group" && chatType !== "supergroup") {
+    await ctx.reply("Эта команда доступна только в группах.");
+    return false;
+  }
+
+  try {
+    const member = await ctx.getChatMember(ctx.from!.id);
+    if (!["administrator", "creator"].includes(member.status)) {
+      await ctx.reply("Только администраторы могут управлять ботом.");
+      return false;
+    }
+  } catch (err) {
+    logger.warn({ chatId: ctx.chat!.id, userId: ctx.from!.id, err }, `${label}: getChatMember failed`);
+    await ctx.reply("Не удалось проверить права. Попробуйте снова.");
+    return false;
+  }
+
+  return true;
+}
 
 function buildAccountText(user: User, photoCount: number): string {
   const name = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username || "Неизвестно";
@@ -40,25 +65,38 @@ export function registerCommands(bot: Bot): void {
     ctx.reply(
       "Доступные команды:\n" +
       "/start — начать\n" +
-      "/clear — очистить историю чата\n" +
-      "/facts — управлять сохранёнными фактами\n" +
-      "/account — профиль и настройки\n" +
-      "/help — помощь"
+      "/clear — очистить историю чата (только в личных сообщениях)\n" +
+      "/facts — управлять сохранёнными фактами (только в личных сообщениях)\n" +
+      "/account — профиль и настройки (только в личных сообщениях)\n" +
+      "/help — помощь\n\n" +
+      "<b>Команды для групп (только администраторы):</b>\n" +
+      "/botstart — включить бота в текущем разделе\n" +
+      "/botstop — выключить бота в текущем разделе",
+      { parse_mode: "HTML" }
     )
   );
 
   bot.command("clear", async (ctx) => {
+    if (ctx.chat?.type !== "private") {
+      return ctx.reply("Эта команда доступна только в личных сообщениях.");
+    }
     await clearHistory(ctx.from!.id);
     logger.info({ chatId: ctx.chat.id }, "History cleared");
     return ctx.reply("История чата очищена.");
   });
 
   bot.command("facts", async (ctx) => {
+    if (ctx.chat?.type !== "private") {
+      return ctx.reply("Эта команда доступна только в личных сообщениях.");
+    }
     logger.info({ userId: ctx.from!.id }, "forget_menu_opened");
     await sendForgetMenu(ctx);
   });
 
   bot.command("account", async (ctx) => {
+    if (ctx.chat?.type !== "private") {
+      return ctx.reply("Эта команда доступна только в личных сообщениях.");
+    }
     const userId = ctx.from!.id;
     const chatId = ctx.chat.id;
     const t0 = Date.now();
@@ -78,6 +116,30 @@ export function registerCommands(bot: Bot): void {
     });
     await createInlineMenu(userId, chatId, msg.message_id, "account");
     logger.info({ userId, durationMs: Date.now() - t0 }, "account_viewed");
+  });
+
+  bot.command("botstart", async (ctx) => {
+    if (!(await ensureGroupAdmin(ctx, "botstart"))) return;
+
+    const userId = ctx.from!.id;
+    const chatId = ctx.chat!.id;
+    const t0 = Date.now();
+    const threadId = ctx.message?.message_thread_id ?? 0;
+    await enableThread(chatId, threadId, userId);
+    logger.info({ chatId, threadId, userId, durationMs: Date.now() - t0 }, "Bot enabled in thread");
+    return ctx.reply("Бот включён в этом разделе.");
+  });
+
+  bot.command("botstop", async (ctx) => {
+    if (!(await ensureGroupAdmin(ctx, "botstop"))) return;
+
+    const userId = ctx.from!.id;
+    const chatId = ctx.chat!.id;
+    const t0 = Date.now();
+    const threadId = ctx.message?.message_thread_id ?? 0;
+    await disableThread(chatId, threadId);
+    logger.info({ chatId, threadId, userId, durationMs: Date.now() - t0 }, "Bot disabled in thread");
+    return ctx.reply("Бот отключён в этом разделе.");
   });
 
   bot.callbackQuery("account:toggle_nsfw", async (ctx) => {

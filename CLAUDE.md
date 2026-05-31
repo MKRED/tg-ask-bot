@@ -21,45 +21,56 @@ src/
   logger.ts              — pino logger (daily rolling, pino-pretty in TTY)
   ai/
     gemini.ts            — Gemini API: analyzeImage(), generateEmbedding(), GeminiBlockedError
-    openrouter.ts        — OpenRouter chat: askOpenRouter(), clearHistory(), addToHistory()
+    openrouter.ts        — OpenRouter chat: askOpenRouter(), clearHistory(), addToHistory(), parseResponse()
     extractFacts.ts      — LLM fact extraction from conversation history
     ollama.ts            — Ollama fallback: analyzeImageOllama() (used when Gemini blocks an image)
+    groupChat.ts         — group chat LLM: askGroupChat() (OpenRouter with reasoning, saves to buffer)
+    groupDecision.ts     — decision LLM: checkShouldRespond() (should bot reply in group?)
   db/
     index.ts             — drizzle DB client
     schema.ts            — all table definitions + exported types
-    messages.ts          — save/get/clear chat history
+    messages.ts          — save/get/clear chat history (DM)
     users.ts             — upsertUser(), getUser(), getUserNsfwEnabled(), toggleNsfwEnabled(), updateUserProfile()
     facts.ts             — user facts CRUD
     savedImages.ts       — saveImage(), findSimilarImages(), findImagesByTags(), countUserImages() (pgvector cosine)
     inlineMenus.ts       — inline keyboard menu state
+    groupChats.ts        — upsertGroupChat(), getGroupChat(), getGroupNsfwEnabled()
+    groupEnabledThreads.ts — enableThread(), disableThread(), isThreadEnabled()
+    groupMessages.ts     — appendToBuffer(), getBuffer(), pruneBuffer() (sliding window, GROUP_BUFFER_SIZE rows)
   handlers/
-    commands.ts          — bot commands (/start, /clear, /facts, /account, /help) + account:toggle_nsfw callback
+    commands.ts          — /start, /help, /clear, /facts, /account, /botstart, /botstop
+    myChatMember.ts      — bot join/leave group events → upsertGroupChat()
     messages/
       index.ts           — registerMessageHandlers()
-      text.ts            — text message handler
-      photo.ts           — photo message handler
-      shared.ts          — processing set, sendMessage(), sendResponseWithImage()
+      text.ts            — DM text handler (private chats only)
+      photo.ts           — DM photo handler (private chats only)
+      groupText.ts       — group text handler (group/supergroup)
+      groupPhoto.ts      — group photo handler (group/supergroup)
+      shared.ts          — processing Set<string>, processingKey(), sendMessage(), sendResponseWithImage()
     forgetMenu/
       index.ts           — sendForgetMenu(), registerForgetCallbacks(), startMenuCleanupScheduler()
       render.ts          — buildMenuText(), buildMenuKeyboard(), buildConfirmKeyboard(), disableMenu()
   prompts/
-    conversation.ts      — SYSTEM_PROMPT + buildSystemPrompt(facts)
+    conversation.ts      — SYSTEM_PROMPT + buildSystemPrompt(facts) (DM)
     factExtraction.ts    — EXTRACTION_SYSTEM_PROMPT
     imageAnalysis.ts     — DESCRIPTION_PROMPT + RESPONSE_SCHEMA
+    groupConversation.ts — GROUP_SYSTEM_PROMPT + buildGroupSystemPrompt(nsfwEnabled)
+    groupDecision.ts     — GROUP_DECISION_PROMPT (JSON-only: should_respond true/false)
   types/
     bot.types.ts         — BotResponse interface
     gemini.types.ts      — ImageAnalysis interface
     index.ts             — barrel export
   constants/
     ai.constants.ts      — LAST_EXCHANGES, IMAGE_MARKER
-    db.constants.ts      — MAX_HISTORY_MESSAGES, MAX_FACTS
-    ui.constants.ts      — MAX_MSG_LENGTH, FACTS_PER_PAGE, CLEANUP_INTERVAL_MS
+    db.constants.ts      — MAX_HISTORY_MESSAGES, MAX_STORED_MESSAGES, MAX_FACTS, GROUP_BUFFER_SIZE, GROUP_DECISION_MSGS, GROUP_FULL_CONTEXT_SIZE
+    ui.constants.ts      — MAX_MSG_LENGTH, FACTS_PER_PAGE, CLEANUP_INTERVAL_MS, GROUP_MSG_TIMEZONE
     index.ts             — barrel export
   strings/
     replies.ts           — FACT_SAVED_REPLIES, BUSY_REPLIES, randomBusyReply(), randomFactSavedReply()
   utils/
     retry.ts             — retry(fn, attempts, delayMs, label, shouldRetry?)
     http.ts              — httpsPost(), downloadFile() (used by ai/gemini.ts)
+    groupFormat.ts       — formatTimestamp(), formatBufferForLLM(), extractForwardInfo()
   scripts/
     backfillEmbeddings.ts — one-time script to fill missing embeddings
 ```
@@ -86,6 +97,7 @@ logger.info({ durationMs: Date.now() - t0, ...relevantFields }, "Operation compl
 - Fire-and-forget chains (`.then().catch()`) must always end with `.catch((err) => logger.warn({ err, ...ctx }, "what failed"))`
 - Never use an empty `catch {}` block — always log at minimum
 - For handlers: unexpected errors should be logged with `logger.error` and result in a user-facing reply
+- **Exception — group handlers** (`groupText.ts`, `groupPhoto.ts`): on error, log with `logger.error` but do **not** send a user-facing reply. The bot is one of many participants in a shared chat, so surfacing every internal error would spam the group. Errors stay in the logs only.
 
 ### Comments — encouraged
 Add comments freely, especially in places with non-trivial logic. Preferred spots:
@@ -165,4 +177,17 @@ someAsyncWork()
   .catch((err) => logger.warn({ err }, "Background work failed"));
 ```
 
-**Processing lock** — `messages.ts` uses a `Set<number>` keyed by chatId to reject concurrent requests from the same user.
+**Processing lock** — `shared.ts` uses a `Set<string>` keyed by `"chatId:threadId"` (via `processingKey()`) to reject concurrent requests from the same chat/thread. Lock must always be released in `finally`.
+
+**Group chat flow** — two-step LLM for groups:
+1. `appendToBuffer()` — always, **before** acquiring the lock, so messages are never lost even if bot is busy
+2. Check `processing.has(key)` — if locked, return silently
+3. `checkShouldRespond()` (decision LLM, last `GROUP_DECISION_MSGS` messages, low reasoning effort, no retry) — skip if `isReplyToBot`
+4. `askGroupChat()` (full LLM, last `GROUP_FULL_CONTEXT_SIZE` messages, with reasoning `effort: high`)
+5. `processing.delete(key)` in `finally`
+
+Bot response is saved to buffer inside `askGroupChat()` as fire-and-forget (DB failure must not block sending).
+
+**Group thread whitelist** — bot only responds in threads where `/botstart` was run (row in `group_enabled_threads`). Check via `isThreadEnabled(chatId, threadId)` at the top of every group handler. `threadId = 0` is the sentinel for groups without topics.
+
+**Reply-to-bot bypass** — if `ctx.message.reply_to_message?.from?.id === ctx.me.id`, skip decision LLM and respond immediately. Log with `logger.info` for visibility.

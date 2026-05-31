@@ -5,7 +5,11 @@ import logger from "../../logger";
 import { MAX_MSG_LENGTH, MAX_CAPTION_LENGTH } from "../../constants";
 import type { BotResponse } from "../../types";
 
-export const processing = new Set<number>();
+export const processing = new Set<string>();
+
+export function processingKey(chatId: number, threadId = 0): string {
+  return `${chatId}:${threadId}`;
+}
 
 export function splitMessage(text: string): string[] {
   if (text.length <= MAX_MSG_LENGTH) return [text];
@@ -30,14 +34,23 @@ export async function sendMessage(ctx: any, text: string): Promise<void> {
   for (const part of parts) {
     try {
       await ctx.reply(part, { parse_mode: "HTML" });
-    } catch {
+    } catch (htmlErr) {
+      logger.warn({ chatId: ctx.chat.id, err: htmlErr }, "HTML parse_mode failed, retrying as plain text");
       await ctx.reply(part);
     }
   }
   logger.info({ chatId: ctx.chat.id, durationMs: Date.now() - t0, parts: parts.length }, "Telegram sendMessage completed");
 }
 
-export async function sendResponseWithImage(ctx: any, chatId: number, answer: BotResponse): Promise<void> {
+// nsfwEnabledOverride — флаг фильтрации NSFW для поиска картинок.
+// Если не передан (личные сообщения) — берём персональную настройку отправителя.
+// В группах вызывающий обязан передать настройку группы (getGroupNsfwEnabled), а не настройку конкретного юзера.
+export async function sendResponseWithImage(
+  ctx: any,
+  chatId: number,
+  answer: BotResponse,
+  nsfwEnabledOverride?: boolean
+): Promise<void> {
   if (!answer.imageTags || answer.imageTags.length === 0) {
     await sendMessage(ctx, answer.text);
     return;
@@ -46,9 +59,11 @@ export async function sendResponseWithImage(ctx: any, chatId: number, answer: Bo
   const queryText = answer.imageTags.join(" ");
   logger.info({ chatId, tags: answer.imageTags }, "Searching similar image by embedding");
 
-  const nsfwEnabled = ctx.from?.id
-    ? await getUserNsfwEnabled(ctx.from.id).catch(() => false)
-    : false;
+  const nsfwEnabled = nsfwEnabledOverride !== undefined
+    ? nsfwEnabledOverride
+    : ctx.from?.id
+      ? await getUserNsfwEnabled(ctx.from.id).catch(() => false)
+      : false;
 
   let images: Awaited<ReturnType<typeof findSimilarImages>> = [];
   try {

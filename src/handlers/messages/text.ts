@@ -4,21 +4,23 @@ import { extractFacts } from "../../ai/extractFacts";
 import logger from "../../logger";
 import { retry } from "../../utils/retry";
 import { upsertUser } from "../../db/users";
-import { processing, sendResponseWithImage } from "./shared";
+import { processing, processingKey, sendResponseWithImage } from "./shared";
 import { randomBusyReply, randomFactSavedReply } from "../../strings/replies";
 
 export function registerTextHandler(bot: Bot): void {
-  bot.on("message:text", async (ctx) => {
+  bot.chatType("private").on("message:text", async (ctx) => {
+
     const chatId = ctx.chat.id;
     logger.info({ chatId, length: ctx.message.text.length }, "Text message received");
 
-    if (processing.has(chatId)) {
+    const key = processingKey(chatId);
+    if (processing.has(key)) {
       await ctx.reply(randomBusyReply(), { reply_parameters: { message_id: ctx.message.message_id } });
       return;
     }
 
-    upsertUser(ctx.from).catch((err) => logger.error({ chatId, err }, "upsertUser failed"));
-    processing.add(chatId);
+    upsertUser(ctx.from, true).catch((err) => logger.error({ chatId, err }, "upsertUser failed"));
+    processing.add(key);
     // Fire-and-forget: если упадёт — просто не покажется индикатор печатания
     ctx.api.sendChatAction(chatId, "typing").catch((err) => logger.debug({ chatId, err }, "sendChatAction failed"));
     const typingInterval = setInterval(() => {
@@ -47,7 +49,7 @@ export function registerTextHandler(bot: Bot): void {
       throw err;
     } finally {
       clearInterval(typingInterval);
-      processing.delete(chatId);
+      processing.delete(key);
     }
   });
 }
