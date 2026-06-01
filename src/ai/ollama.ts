@@ -5,9 +5,42 @@ import { downloadFile } from "../utils/http.js";
 import { DESCRIPTION_PROMPT, RESPONSE_SCHEMA } from "../prompts/imageAnalysis.js";
 import type { ImageAnalysis } from "../types/index.js";
 
+// Ollama — локальная модель, плохо переносит параллельные запросы: при пике
+// (все картинки отброшены Gemini одновременно) runner падает с OOM/crash.
+// Семафор на 1 слот: запросы строго по одному, остальные ждут в очереди.
+class Semaphore {
+  private permits: number;
+  private queue: Array<() => void> = [];
+
+  constructor(permits: number) {
+    this.permits = permits;
+  }
+
+  acquire(): Promise<void> {
+    if (this.permits > 0) {
+      this.permits--;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => this.queue.push(resolve));
+  }
+
+  release(): void {
+    const next = this.queue.shift();
+    if (next) {
+      next();
+    } else {
+      this.permits++;
+    }
+  }
+}
+
+const ollamaSemaphore = new Semaphore(1);
+
 export async function analyzeImageOllama(fileUrl: string): Promise<ImageAnalysis> {
   const agent = config.proxyUrl ? new HttpsProxyAgent(config.proxyUrl) : undefined;
   const buffer = await downloadFile(fileUrl, agent);
+
+  await ollamaSemaphore.acquire();
 
   const t0 = Date.now();
   const controller = new AbortController();
@@ -35,6 +68,7 @@ export async function analyzeImageOllama(fileUrl: string): Promise<ImageAnalysis
     data = await response.json();
   } finally {
     clearTimeout(timeout);
+    ollamaSemaphore.release();
   }
 
   const durationMs = Date.now() - t0;

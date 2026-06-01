@@ -43,6 +43,7 @@ src/
     groupChats.ts        — upsertGroupChat(), getGroupChat(), getGroupNsfwEnabled()
     groupEnabledThreads.ts — enableThread(mode), disableThread(), getThreadMode(), isThreadEnabled() (mode: "chat" | "ingest")
     groupMessages.ts     — appendToBuffer(), getBuffer(), pruneBuffer() (sliding window, GROUP_BUFFER_SIZE rows)
+    groupIngestImages.ts — addIngestImage(), getPendingBatch(), deleteBatchByIds(), getStaleIngestThreads() (ingest digest queue)
   handlers/
     commands.ts          — /start, /help, /clear, /facts, /account, /botstart, /botingest, /botstop
     myChatMember.ts      — bot join/leave group events → upsertGroupChat()
@@ -53,6 +54,9 @@ src/
       groupText.ts       — group text handler (group/supergroup)
       groupPhoto.ts      — group photo handler (group/supergroup)
       shared.ts          — processing Set<string>, processingKey(), sendMessage(), sendResponseWithImage()
+      photoAnalysis.ts   — analyzePhotoWithFallback() (Gemini→Ollama, never throws)
+      ingestDigest.ts    — scheduleDigest(), checkStaleDigests() (5-min debounce digest for ingest threads)
+      retryPendingIngest.ts — retryPendingImages() (startup: re-analyze pending rows after restart)
     forgetMenu/
       index.ts           — sendForgetMenu(), registerForgetCallbacks(), startMenuCleanupScheduler()
       render.ts          — buildMenuText(), buildMenuKeyboard(), buildConfirmKeyboard(), disableMenu()
@@ -197,8 +201,18 @@ Bot response is saved to buffer inside `askGroupChat()` as fire-and-forget (DB f
 **Group thread whitelist** — bot only acts in threads with a row in `group_enabled_threads`. Each row has a `mode`: `"chat"` (full conversation, set by `/botstart`) or `"ingest"` (silent image absorption, set by `/botingest`). Check via `getThreadMode(chatId, threadId)` at the top of every group handler — `null` = not enabled, ignore. `isThreadEnabled()` is a thin boolean wrapper kept for convenience. `threadId = 0` is the sentinel for groups without topics.
 
 **Ingest mode** (`mode === "ingest"`) — "pictures-only" thread: bot silently feeds photos into the image DB and never replies.
-- `groupPhoto.ts`: runs Gemini→Ollama analysis + embedding + `saveImage` (fire-and-forget, **before** the buffer), then `return` — skipping `appendToBuffer`, the processing lock, the decision LLM, and any response. No concurrency cap by design (a picture topic is high-volume).
+- `groupPhoto.ts`: inserts a `"pending"` row into `group_ingest_images` immediately after `getFile` (before analysis). Runs `analyzePhotoWithFallback()` (Gemini→Ollama via semaphore). Updates the row with the real `analyzedBy` after analysis. Runs `saveImage` fire-and-forget. Then calls `scheduleDigest()` and returns — skipping `appendToBuffer`, the processing lock, the decision LLM, and any response. No concurrency cap by design (a picture topic is high-volume); Ollama is protected by an internal semaphore (max 1 concurrent).
 - `groupText.ts`: returns immediately — text in an ingest thread is ignored entirely (not even buffered).
 - `/botstop` clears the row regardless of mode. Re-running `/botstart` or `/botingest` switches the mode in place (upsert via `onConflictDoUpdate`).
+
+**Ingest digest** — after 5 min of no new images in an ingest thread, `ingestDigest.ts` sends a summary to the chat:
+- `scheduleDigest(chatId, threadId, api)` — resets a per-thread debounce timer to 5 min (in-memory `Map`). Called after each image is processed (not on receipt), so the 5-min window starts from the last *analyzed* image.
+- `sendDigest()` — reads pending rows from `group_ingest_images`, captures their IDs before `sendMessage`, then deletes only those IDs (protects against concurrent arrivals during the send).
+- `checkStaleDigests(api)` — called at bot startup after `retryPendingImages`; for each thread with pending rows: if last image ≥5 min ago → send immediately, else re-arm timer for the remainder.
+- `group_ingest_images` is a transient queue — rows are **deleted** after the digest is sent, not archived.
+
+**Ingest restart recovery** — startup sequence in `index.ts` is order-critical:
+1. `retryPendingImages(api)` (`retryPendingIngest.ts`) — finds rows with `analyzedBy="pending"` (analysis was in-flight when bot was killed), re-downloads each via `getFile`, re-runs `analyzePhotoWithFallback`, updates the row, calls `scheduleDigest` per row.
+2. `.then(() => checkStaleDigests(api))` — only after all pending rows are resolved. If reversed, `checkStaleDigests` would send a digest with unresolved `pending` rows (they match no stat bucket) and delete them permanently.
 
 **Reply-to-bot bypass** — if `ctx.message.reply_to_message?.from?.id === ctx.me.id`, skip decision LLM and respond immediately. Log with `logger.info` for visibility.

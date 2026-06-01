@@ -119,8 +119,28 @@ export const groupMessageBuffer = pgTable("group_message_buffer", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Очередь картинок для сводки в режиме «пожиратель».
+// Строки удаляются после отправки дайджеста — это временная очередь, не постоянное хранилище.
+export const groupIngestImages = pgTable("group_ingest_images", {
+  id: serial("id").primaryKey(),
+  chatId: bigint("chat_id", { mode: "number" }).notNull(),
+  threadId: integer("thread_id").notNull().default(0),
+  // null если картинку не удалось получить от Telegram до анализа
+  fileId: text("file_id"),
+  // "pending" | "gemini" | "ollama" | "failed" | "telegram_error"
+  analyzedBy: text("analyzed_by").notNull(),
+  moodTags: text("mood_tags").array().notNull().default(sql`'{}'::text[]`),
+  contentTags: text("content_tags").array().notNull().default(sql`'{}'::text[]`),
+  isNsfw: boolean("is_nsfw").notNull().default(false),
+  // Нужны для вызова saveImage при retry после рестарта
+  senderUserId: bigint("sender_user_id", { mode: "number" }),
+  caption: text("caption"),
+  savedAt: timestamp("saved_at").notNull().defaultNow(),
+});
+
 export type GroupChat = typeof groupChats.$inferSelect;
 export type NewGroupChat = typeof groupChats.$inferInsert;
 export type GroupEnabledThread = typeof groupEnabledThreads.$inferSelect;
 export type GroupMessageBuffer = typeof groupMessageBuffer.$inferSelect;
 export type NewGroupMessageBuffer = typeof groupMessageBuffer.$inferInsert;
+export type GroupIngestImage = typeof groupIngestImages.$inferSelect;

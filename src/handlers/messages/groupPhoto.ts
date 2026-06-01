@@ -1,16 +1,18 @@
 import type { Bot } from "grammy";
-import { analyzeImage, generateEmbedding, GeminiBlockedError } from "../../ai/gemini.js";
-import { analyzeImageOllama } from "../../ai/ollama.js";
+import { generateEmbedding } from "../../ai/gemini.js";
 import { askGroupChat } from "../../ai/groupChat.js";
 import { checkShouldRespond } from "../../ai/groupDecision.js";
 import { getGroupNsfwEnabled } from "../../db/groupChats.js";
 import { getThreadMode } from "../../db/groupEnabledThreads.js";
 import { appendToBuffer, getBuffer } from "../../db/groupMessages.js";
+import { addIngestImage, updateIngestImage } from "../../db/groupIngestImages.js";
 import { saveImage } from "../../db/savedImages.js";
 import { upsertUser } from "../../db/users.js";
 import { extractForwardInfo } from "../../utils/groupFormat.js";
 import { retry } from "../../utils/retry.js";
 import { processing, processingKey, sendResponseWithImage, isBotMentioned } from "./shared.js";
+import { scheduleDigest } from "./ingestDigest.js";
+import { analyzePhotoWithFallback } from "./photoAnalysis.js";
 import { GROUP_DECISION_MSGS, GROUP_FULL_CONTEXT_SIZE } from "../../constants/index.js";
 import { config } from "../../config.js";
 import logger from "../../logger.js";
@@ -39,7 +41,15 @@ export function registerGroupPhotoHandler(bot: Bot): void {
       logger.error({ chatId, threadId, err }, "getFile failed for group photo");
       return null;
     });
-    if (!file) return;
+    if (!file) {
+      // В ingest-режиме учитываем ошибку Telegram в статистике батча
+      if (mode === "ingest") {
+        addIngestImage({ chatId, threadId, fileId: null, analyzedBy: "telegram_error", moodTags: [], contentTags: [], isNsfw: false })
+          .catch((err) => logger.warn({ chatId, threadId, err }, "Failed to track telegram_error in ingest batch"));
+        scheduleDigest(chatId, threadId, ctx.api);
+      }
+      return;
+    }
 
     const fileUrl = `https://api.telegram.org/file/bot${config.botToken}/${file.file_path}`;
     const { isForward, forwardFrom } = extractForwardInfo(ctx.message);
@@ -47,36 +57,31 @@ export function registerGroupPhotoHandler(bot: Bot): void {
     const senderUsername = ctx.from.username ?? null;
     const caption = ctx.message.caption ?? null;
 
-    let userContent: string;
-    let imageAnalysis: { description: string; moodTags: string[]; contentTags: string[]; isNsfw: boolean } | null = null;
+    // В ingest-режиме вставляем строку "pending" сразу, до анализа.
+    // Если бот упадёт во время очереди Ollama — картинка уже в БД и не потеряется из статистики.
+    let ingestRowId: number | null = null;
+    if (mode === "ingest") {
+      try {
+        ingestRowId = await addIngestImage({
+          chatId, threadId, fileId: photo.file_id,
+          analyzedBy: "pending", moodTags: [], contentTags: [], isNsfw: false,
+          senderUserId: userId,
+          caption,
+        });
+      } catch (err) {
+        logger.warn({ chatId, threadId, err }, "Failed to insert pending ingest row");
+      }
+    }
 
-    try {
-      imageAnalysis = await retry(
-        () => analyzeImage(fileUrl),
-        3, 1500, "Gemini",
-        (err) => !(err instanceof GeminiBlockedError)
-      );
+    const { imageAnalysis, analyzedBy } = await analyzePhotoWithFallback(fileUrl, { chatId, threadId });
+
+    let userContent: string;
+    if (imageAnalysis) {
       userContent = caption
         ? `${caption}\n\n[Photo: ${imageAnalysis.description}]`
         : `[User sent a photo without caption]\n\n[Photo: ${imageAnalysis.description}]`;
-    } catch (geminiErr) {
-      const blocked = geminiErr instanceof GeminiBlockedError;
-      if (blocked) {
-        logger.info({ chatId, threadId, blockReason: (geminiErr as GeminiBlockedError).blockReason }, "Gemini blocked group image, falling back to Ollama");
-      } else {
-        logger.warn({ chatId, threadId, err: geminiErr }, "Gemini failed for group photo, falling back to Ollama");
-      }
-
-      try {
-        const ollamaAnalysis = await analyzeImageOllama(fileUrl);
-        imageAnalysis = ollamaAnalysis;
-        userContent = caption
-          ? `${caption}\n\n[Photo: ${ollamaAnalysis.description}]`
-          : `[User sent a photo without caption]\n\n[Photo: ${ollamaAnalysis.description}]`;
-      } catch (ollamaErr) {
-        logger.error({ chatId, threadId, err: ollamaErr }, "Ollama fallback also failed for group photo");
-        userContent = "[User sent a photo, but it could not be analyzed. React in your own style.]";
-      }
+    } else {
+      userContent = "[User sent a photo, but it could not be analyzed. React in your own style.]";
     }
 
     // Всегда сохраняем изображение в БД — fire-and-forget.
@@ -107,11 +112,18 @@ export function registerGroupPhotoHandler(bot: Bot): void {
       })();
     }
 
-    // Режим «пожиратель»: картинку обработали — на этом всё. Ни буфера, ни decision, ни ответа.
-    // saved=false означает, что и Gemini, и Ollama не смогли распознать картинку (см. error-логи выше),
-    // поэтому в базу ничего не ушло — картинка молча пропущена.
+    // Режим «пожиратель»: обновляем pending-строку реальным результатом анализа и уходим.
     if (mode === "ingest") {
-      logger.info({ chatId, threadId, saved: imageAnalysis !== null }, "Ingest mode: photo processed, staying silent");
+      if (ingestRowId !== null) {
+        updateIngestImage(ingestRowId, {
+          analyzedBy,
+          moodTags: imageAnalysis?.moodTags ?? [],
+          contentTags: imageAnalysis?.contentTags ?? [],
+          isNsfw: imageAnalysis?.isNsfw ?? false,
+        }).catch((err) => logger.warn({ chatId, threadId, err }, "Failed to update ingest image"));
+      }
+      scheduleDigest(chatId, threadId, ctx.api);
+      logger.info({ chatId, threadId, analyzedBy }, "Ingest mode: photo processed, staying silent");
       return;
     }
 
