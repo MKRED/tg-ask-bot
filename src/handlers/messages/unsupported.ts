@@ -1,5 +1,5 @@
 import type { Bot } from "grammy";
-import logger from "../../logger";
+import logger from "../../logger.js";
 import {
   randomUnsupportedVideoReply,
   randomUnsupportedAnimationReply,
@@ -8,7 +8,7 @@ import {
   randomUnsupportedAudioReply,
   randomUnsupportedDocumentReply,
   randomUnsupportedVideoNoteReply,
-} from "../../strings/replies";
+} from "../../strings/replies.js";
 
 export function registerUnsupportedHandlers(bot: Bot): void {
   const dm = bot.chatType("private");

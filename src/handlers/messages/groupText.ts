@@ -1,15 +1,15 @@
 import type { Bot } from "grammy";
-import { askGroupChat } from "../../ai/groupChat";
-import { checkShouldRespond } from "../../ai/groupDecision";
-import { getGroupNsfwEnabled } from "../../db/groupChats";
-import { getThreadMode } from "../../db/groupEnabledThreads";
-import { appendToBuffer, getBuffer } from "../../db/groupMessages";
-import { upsertUser } from "../../db/users";
-import { extractForwardInfo } from "../../utils/groupFormat";
-import { retry } from "../../utils/retry";
-import { processing, processingKey, sendResponseWithImage, isBotMentioned } from "./shared";
-import { GROUP_DECISION_MSGS, GROUP_FULL_CONTEXT_SIZE } from "../../constants";
-import logger from "../../logger";
+import { askGroupChat } from "../../ai/groupChat.js";
+import { checkShouldRespond } from "../../ai/groupDecision.js";
+import { getGroupNsfwEnabled } from "../../db/groupChats.js";
+import { getThreadMode } from "../../db/groupEnabledThreads.js";
+import { appendToBuffer, getBuffer } from "../../db/groupMessages.js";
+import { upsertUser } from "../../db/users.js";
+import { extractForwardInfo } from "../../utils/groupFormat.js";
+import { retry } from "../../utils/retry.js";
+import { processing, processingKey, sendResponseWithImage, isBotMentioned } from "./shared.js";
+import { GROUP_DECISION_MSGS, GROUP_FULL_CONTEXT_SIZE } from "../../constants/index.js";
+import logger from "../../logger.js";
 
 export function registerGroupTextHandler(bot: Bot): void {
   bot.chatType(["group", "supergroup"]).on("message:text", async (ctx) => {

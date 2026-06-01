@@ -1,9 +1,9 @@
 import OpenAI from "openai";
-import { config } from "../config";
-import { formatBufferForLLM } from "../utils/groupFormat";
-import { GROUP_DECISION_PROMPT } from "../prompts/groupDecision";
-import type { GroupMessageBuffer } from "../db/schema";
-import logger from "../logger";
+import { config } from "../config.js";
+import { formatBufferForLLM } from "../utils/groupFormat.js";
+import { GROUP_DECISION_PROMPT } from "../prompts/groupDecision.js";
+import type { GroupMessageBuffer } from "../db/schema.js";
+import logger from "../logger.js";
 
 const client = new OpenAI({
   apiKey: config.openrouterApiKey,

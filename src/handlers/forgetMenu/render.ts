@@ -1,9 +1,9 @@
 import type { Api } from "grammy";
 import { InlineKeyboard } from "grammy";
-import { deleteInlineMenuById } from "../../db/inlineMenus";
-import type { InlineMenu, UserFact } from "../../db/schema";
-import logger from "../../logger";
-import { FACTS_PER_PAGE } from "../../constants";
+import { deleteInlineMenuById } from "../../db/inlineMenus.js";
+import type { InlineMenu, UserFact } from "../../db/schema.js";
+import logger from "../../logger.js";
+import { FACTS_PER_PAGE } from "../../constants/index.js";
 
 export function totalPages(factsCount: number): number {
   return Math.ceil(factsCount / FACTS_PER_PAGE);

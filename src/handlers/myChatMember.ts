@@ -1,6 +1,6 @@
 import type { Bot } from "grammy";
-import { upsertGroupChat } from "../db/groupChats";
-import logger from "../logger";
+import { upsertGroupChat } from "../db/groupChats.js";
+import logger from "../logger.js";
 
 export function registerMyChatMemberHandler(bot: Bot): void {
   bot.on("my_chat_member", async (ctx) => {

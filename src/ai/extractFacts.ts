@@ -1,10 +1,10 @@
 import OpenAI from "openai";
-import { config } from "../config";
-import { getUserFacts, upsertUserFact, deleteUserFact } from "../db/facts";
-import { getHistory } from "../db/messages";
-import logger from "../logger";
-import { LAST_EXCHANGES } from "../constants";
-import { EXTRACTION_SYSTEM_PROMPT } from "../prompts/factExtraction";
+import { config } from "../config.js";
+import { getUserFacts, upsertUserFact, deleteUserFact } from "../db/facts.js";
+import { getHistory } from "../db/messages.js";
+import logger from "../logger.js";
+import { LAST_EXCHANGES } from "../constants/index.js";
+import { EXTRACTION_SYSTEM_PROMPT } from "../prompts/factExtraction.js";
 
 const client = new OpenAI({
   apiKey: config.openrouterApiKey,

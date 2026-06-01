@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm";
-import { db } from "./index";
-import { users, type User } from "./schema";
+import { db } from "./index.js";
+import { users, type User } from "./schema.js";
 
 export async function getUser(telegramId: number): Promise<User | null> {
   const [user] = await db

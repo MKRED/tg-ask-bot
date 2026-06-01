@@ -1,12 +1,12 @@
 import OpenAI from "openai";
-import { config } from "../config";
-import { saveMessage, getHistory, clearMessages } from "../db/messages";
-import { getUserFacts } from "../db/facts";
-import { getUserNsfwEnabled } from "../db/users";
-import logger from "../logger";
-import { IMAGE_MARKER } from "../constants";
-import { buildSystemPrompt } from "../prompts/conversation";
-import type { BotResponse } from "../types";
+import { config } from "../config.js";
+import { saveMessage, getHistory, clearMessages } from "../db/messages.js";
+import { getUserFacts } from "../db/facts.js";
+import { getUserNsfwEnabled } from "../db/users.js";
+import logger from "../logger.js";
+import { IMAGE_MARKER } from "../constants/index.js";
+import { buildSystemPrompt } from "../prompts/conversation.js";
+import type { BotResponse } from "../types/index.js";
 
 export type { BotResponse };
 

@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
-import { db } from "../db/index";
-import { savedImages } from "../db/schema";
-import { generateEmbedding } from "../ai/gemini";
+import { db } from "../db/index.js";
+import { savedImages } from "../db/schema.js";
+import { generateEmbedding } from "../ai/gemini.js";
 
 async function main() {
   const rows = await db

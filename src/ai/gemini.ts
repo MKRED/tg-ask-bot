@@ -1,9 +1,9 @@
 import { HttpsProxyAgent } from "https-proxy-agent";
-import { config } from "../config";
-import logger from "../logger";
-import { httpsPost, downloadFile } from "../utils/http";
-import { DESCRIPTION_PROMPT, RESPONSE_SCHEMA } from "../prompts/imageAnalysis";
-import type { ImageAnalysis } from "../types";
+import { config } from "../config.js";
+import logger from "../logger.js";
+import { httpsPost, downloadFile } from "../utils/http.js";
+import { DESCRIPTION_PROMPT, RESPONSE_SCHEMA } from "../prompts/imageAnalysis.js";
+import type { ImageAnalysis } from "../types/index.js";
 
 export class GeminiBlockedError extends Error {
   constructor(public readonly blockReason: string) {

@@ -1,13 +1,13 @@
 import { Bot, InlineKeyboard, type Context } from "grammy";
-import { clearHistory } from "../ai/openrouter";
-import { sendForgetMenu } from "./forgetMenu/index";
-import { disableMenu } from "./forgetMenu/render";
-import { getUser, toggleNsfwEnabled } from "../db/users";
-import { countUserImages } from "../db/savedImages";
-import { createInlineMenu, getActiveMenuByUser } from "../db/inlineMenus";
-import { enableThread, disableThread } from "../db/groupEnabledThreads";
-import logger from "../logger";
-import type { User } from "../db/schema";
+import { clearHistory } from "../ai/openrouter.js";
+import { sendForgetMenu } from "./forgetMenu/index.js";
+import { disableMenu } from "./forgetMenu/render.js";
+import { getUser, toggleNsfwEnabled } from "../db/users.js";
+import { countUserImages } from "../db/savedImages.js";
+import { createInlineMenu, getActiveMenuByUser } from "../db/inlineMenus.js";
+import { enableThread, disableThread } from "../db/groupEnabledThreads.js";
+import logger from "../logger.js";
+import type { User } from "../db/schema.js";
 
 // Проверка прав для групповых команд (/botstart, /botstop): команда работает только в группе
 // и только для администраторов/создателя. На любой неуспех сам отправляет ответ и возвращает false.

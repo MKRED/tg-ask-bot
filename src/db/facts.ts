@@ -1,8 +1,8 @@
 import { asc, count, eq, and } from "drizzle-orm";
-import { db } from "./index";
-import { userFacts } from "./schema";
-import type { UserFact } from "./schema";
-import { MAX_FACTS } from "../constants";
+import { db } from "./index.js";
+import { userFacts } from "./schema.js";
+import type { UserFact } from "./schema.js";
+import { MAX_FACTS } from "../constants/index.js";
 
 export async function getUserFacts(telegramId: number): Promise<UserFact[]> {
   return db.select().from(userFacts).where(eq(userFacts.userId, telegramId));

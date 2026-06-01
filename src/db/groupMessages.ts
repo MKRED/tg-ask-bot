@@ -1,9 +1,9 @@
 import { and, desc, eq, sql } from "drizzle-orm";
-import { db } from "./index";
-import { groupMessageBuffer } from "./schema";
-import type { GroupMessageBuffer, NewGroupMessageBuffer } from "./schema";
-import { GROUP_BUFFER_SIZE } from "../constants";
-import logger from "../logger";
+import { db } from "./index.js";
+import { groupMessageBuffer } from "./schema.js";
+import type { GroupMessageBuffer, NewGroupMessageBuffer } from "./schema.js";
+import { GROUP_BUFFER_SIZE } from "../constants/index.js";
+import logger from "../logger.js";
 
 interface AppendOpts {
   chatId: number;

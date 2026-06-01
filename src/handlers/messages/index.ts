@@ -1,9 +1,9 @@
 import type { Bot } from "grammy";
-import { registerTextHandler } from "./text";
-import { registerPhotoHandler } from "./photo";
-import { registerUnsupportedHandlers } from "./unsupported";
-import { registerGroupTextHandler } from "./groupText";
-import { registerGroupPhotoHandler } from "./groupPhoto";
+import { registerTextHandler } from "./text.js";
+import { registerPhotoHandler } from "./photo.js";
+import { registerUnsupportedHandlers } from "./unsupported.js";
+import { registerGroupTextHandler } from "./groupText.js";
+import { registerGroupPhotoHandler } from "./groupPhoto.js";
 
 export function registerMessageHandlers(bot: Bot): void {
   registerTextHandler(bot);

@@ -1,4 +1,4 @@
-import type { UserFact } from "../db/schema";
+import type { UserFact } from "../db/schema.js";
 
 export const SYSTEM_PROMPT = `You are a sharp, irreverent conversationalist in a Telegram chat. You speak Russian.
 

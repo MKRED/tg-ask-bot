@@ -1,15 +1,15 @@
 import type { Bot } from "grammy";
-import { analyzeImage, generateEmbedding, GeminiBlockedError } from "../../ai/gemini";
-import { analyzeImageOllama } from "../../ai/ollama";
-import { askOpenRouter } from "../../ai/openrouter";
-import { extractFacts } from "../../ai/extractFacts";
-import { config } from "../../config";
-import logger from "../../logger";
-import { retry } from "../../utils/retry";
-import { upsertUser } from "../../db/users";
-import { saveImage } from "../../db/savedImages";
-import { processing, processingKey, sendResponseWithImage } from "./shared";
-import { randomBusyReply, randomFactSavedReply, randomProcessingReply } from "../../strings/replies";
+import { analyzeImage, generateEmbedding, GeminiBlockedError } from "../../ai/gemini.js";
+import { analyzeImageOllama } from "../../ai/ollama.js";
+import { askOpenRouter } from "../../ai/openrouter.js";
+import { extractFacts } from "../../ai/extractFacts.js";
+import { config } from "../../config.js";
+import logger from "../../logger.js";
+import { retry } from "../../utils/retry.js";
+import { upsertUser } from "../../db/users.js";
+import { saveImage } from "../../db/savedImages.js";
+import { processing, processingKey, sendResponseWithImage } from "./shared.js";
+import { randomBusyReply, randomFactSavedReply, randomProcessingReply } from "../../strings/replies.js";
 
 export function registerPhotoHandler(bot: Bot): void {
   bot.chatType("private").on("message:photo", async (ctx) => {

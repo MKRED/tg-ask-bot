@@ -1,10 +1,10 @@
 import { run } from "@grammyjs/runner";
-import { bot } from "./bot";
-import { registerCommands } from "./handlers/commands";
-import { registerMessageHandlers } from "./handlers/messages/index";
-import { registerForgetCallbacks, startMenuCleanupScheduler } from "./handlers/forgetMenu/index";
-import { registerMyChatMemberHandler } from "./handlers/myChatMember";
-import logger from "./logger";
+import { bot } from "./bot.js";
+import { registerCommands } from "./handlers/commands.js";
+import { registerMessageHandlers } from "./handlers/messages/index.js";
+import { registerForgetCallbacks, startMenuCleanupScheduler } from "./handlers/forgetMenu/index.js";
+import { registerMyChatMemberHandler } from "./handlers/myChatMember.js";
+import logger from "./logger.js";
 
 registerMyChatMemberHandler(bot);
 registerCommands(bot);

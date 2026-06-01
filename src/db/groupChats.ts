@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
-import { db } from "./index";
-import { groupChats } from "./schema";
-import type { GroupChat } from "./schema";
-import logger from "../logger";
+import { db } from "./index.js";
+import { groupChats } from "./schema.js";
+import type { GroupChat } from "./schema.js";
+import logger from "../logger.js";
 
 export async function upsertGroupChat(
   chatId: number,

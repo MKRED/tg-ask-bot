@@ -1,7 +1,7 @@
 import { and, count, eq, sql } from "drizzle-orm";
-import { db } from "./index";
-import { savedImages } from "./schema";
-import type { NewSavedImage, SavedImage } from "./schema";
+import { db } from "./index.js";
+import { savedImages } from "./schema.js";
+import type { NewSavedImage, SavedImage } from "./schema.js";
 
 export async function countUserImages(userId: number): Promise<number> {
   const [row] = await db

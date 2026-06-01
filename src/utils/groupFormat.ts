@@ -1,6 +1,6 @@
 import type { Message } from "grammy/types";
-import type { GroupMessageBuffer } from "../db/schema";
-import { GROUP_MSG_TIMEZONE } from "../constants";
+import type { GroupMessageBuffer } from "../db/schema.js";
+import { GROUP_MSG_TIMEZONE } from "../constants/index.js";
 
 export function formatTimestamp(date: Date): string {
   // Формат: "29.05.2025 14:32" по временной зоне Владивостока

@@ -1,12 +1,12 @@
 import OpenAI from "openai";
-import { config } from "../config";
-import { formatBufferForLLM } from "../utils/groupFormat";
-import { buildGroupSystemPrompt } from "../prompts/groupConversation";
-import { parseResponse } from "./openrouter";
-import { appendToBuffer } from "../db/groupMessages";
-import type { GroupMessageBuffer } from "../db/schema";
-import type { BotResponse } from "../types";
-import logger from "../logger";
+import { config } from "../config.js";
+import { formatBufferForLLM } from "../utils/groupFormat.js";
+import { buildGroupSystemPrompt } from "../prompts/groupConversation.js";
+import { parseResponse } from "./openrouter.js";
+import { appendToBuffer } from "../db/groupMessages.js";
+import type { GroupMessageBuffer } from "../db/schema.js";
+import type { BotResponse } from "../types/index.js";
+import logger from "../logger.js";
 
 const client = new OpenAI({
   apiKey: config.openrouterApiKey,

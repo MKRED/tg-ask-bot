@@ -1,11 +1,11 @@
 import type { Bot } from "grammy";
-import { askOpenRouter } from "../../ai/openrouter";
-import { extractFacts } from "../../ai/extractFacts";
-import logger from "../../logger";
-import { retry } from "../../utils/retry";
-import { upsertUser } from "../../db/users";
-import { processing, processingKey, sendResponseWithImage } from "./shared";
-import { randomBusyReply, randomFactSavedReply } from "../../strings/replies";
+import { askOpenRouter } from "../../ai/openrouter.js";
+import { extractFacts } from "../../ai/extractFacts.js";
+import logger from "../../logger.js";
+import { retry } from "../../utils/retry.js";
+import { upsertUser } from "../../db/users.js";
+import { processing, processingKey, sendResponseWithImage } from "./shared.js";
+import { randomBusyReply, randomFactSavedReply } from "../../strings/replies.js";
 
 export function registerTextHandler(bot: Bot): void {
   bot.chatType("private").on("message:text", async (ctx) => {

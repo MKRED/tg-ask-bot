@@ -1,7 +1,7 @@
 import { and, eq, lt, or } from "drizzle-orm";
-import { db } from "./index";
-import { inlineMenus } from "./schema";
-import type { InlineMenu } from "./schema";
+import { db } from "./index.js";
+import { inlineMenus } from "./schema.js";
+import type { InlineMenu } from "./schema.js";
 
 export async function createInlineMenu(
   userId: number,

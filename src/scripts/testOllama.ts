@@ -1,5 +1,5 @@
-import { config } from "../config";
-import { analyzeImageOllama } from "../ai/ollama";
+import { config } from "../config.js";
+import { analyzeImageOllama } from "../ai/ollama.js";
 
 // Тестовая картинка по умолчанию — небольшое публичное изображение.
 // Можно переопределить через аргумент: yarn tsx src/scripts/testOllama.ts <url>

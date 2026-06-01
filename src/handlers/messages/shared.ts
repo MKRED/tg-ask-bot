@@ -1,9 +1,9 @@
-import { generateEmbedding } from "../../ai/gemini";
-import { findSimilarImages } from "../../db/savedImages";
-import { getUserNsfwEnabled } from "../../db/users";
-import logger from "../../logger";
-import { MAX_MSG_LENGTH, MAX_CAPTION_LENGTH } from "../../constants";
-import type { BotResponse } from "../../types";
+import { generateEmbedding } from "../../ai/gemini.js";
+import { findSimilarImages } from "../../db/savedImages.js";
+import { getUserNsfwEnabled } from "../../db/users.js";
+import logger from "../../logger.js";
+import { MAX_MSG_LENGTH, MAX_CAPTION_LENGTH } from "../../constants/index.js";
+import type { BotResponse } from "../../types/index.js";
 
 export const processing = new Set<string>();
 

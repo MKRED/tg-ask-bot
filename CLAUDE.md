@@ -3,6 +3,12 @@
 ## Package manager
 Always use **yarn**. Never use npm.
 
+## Module system
+Project is **native ESM** (`"type": "module"`, tsconfig `module`/`moduleResolution: nodenext`).
+- Every **relative** import/export MUST carry an explicit `.js` extension — even though the source file is `.ts`. Example: `import { config } from "../config.js";`
+- Importing a directory does **not** work — point at the barrel file explicitly: `import { X } from "../constants/index.js";`
+- Bare package imports (`grammy`, `drizzle-orm`, …) stay extensionless as usual.
+
 ## Dev workflow
 ```
 yarn dev           # start bot (run in background)

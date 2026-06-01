@@ -1,19 +1,19 @@
 import type { Bot } from "grammy";
-import { analyzeImage, generateEmbedding, GeminiBlockedError } from "../../ai/gemini";
-import { analyzeImageOllama } from "../../ai/ollama";
-import { askGroupChat } from "../../ai/groupChat";
-import { checkShouldRespond } from "../../ai/groupDecision";
-import { getGroupNsfwEnabled } from "../../db/groupChats";
-import { getThreadMode } from "../../db/groupEnabledThreads";
-import { appendToBuffer, getBuffer } from "../../db/groupMessages";
-import { saveImage } from "../../db/savedImages";
-import { upsertUser } from "../../db/users";
-import { extractForwardInfo } from "../../utils/groupFormat";
-import { retry } from "../../utils/retry";
-import { processing, processingKey, sendResponseWithImage, isBotMentioned } from "./shared";
-import { GROUP_DECISION_MSGS, GROUP_FULL_CONTEXT_SIZE } from "../../constants";
-import { config } from "../../config";
-import logger from "../../logger";
+import { analyzeImage, generateEmbedding, GeminiBlockedError } from "../../ai/gemini.js";
+import { analyzeImageOllama } from "../../ai/ollama.js";
+import { askGroupChat } from "../../ai/groupChat.js";
+import { checkShouldRespond } from "../../ai/groupDecision.js";
+import { getGroupNsfwEnabled } from "../../db/groupChats.js";
+import { getThreadMode } from "../../db/groupEnabledThreads.js";
+import { appendToBuffer, getBuffer } from "../../db/groupMessages.js";
+import { saveImage } from "../../db/savedImages.js";
+import { upsertUser } from "../../db/users.js";
+import { extractForwardInfo } from "../../utils/groupFormat.js";
+import { retry } from "../../utils/retry.js";
+import { processing, processingKey, sendResponseWithImage, isBotMentioned } from "./shared.js";
+import { GROUP_DECISION_MSGS, GROUP_FULL_CONTEXT_SIZE } from "../../constants/index.js";
+import { config } from "../../config.js";
+import logger from "../../logger.js";
 
 export function registerGroupPhotoHandler(bot: Bot): void {
   bot.chatType(["group", "supergroup"]).on("message:photo", async (ctx) => {

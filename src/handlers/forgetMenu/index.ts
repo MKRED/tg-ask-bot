@@ -1,23 +1,23 @@
 import type { Bot, Context } from "grammy";
-import { config } from "../../config";
-import { getUserFacts, deleteUserFactById, deleteUserFacts } from "../../db/facts";
+import { config } from "../../config.js";
+import { getUserFacts, deleteUserFactById, deleteUserFacts } from "../../db/facts.js";
 import {
   createInlineMenu,
   getActiveMenuByUser,
   touchInlineMenu,
   deleteInlineMenuByUser,
   getExpiredMenus,
-} from "../../db/inlineMenus";
-import type { InlineMenu } from "../../db/schema";
-import logger from "../../logger";
-import { CLEANUP_INTERVAL_MS } from "../../constants";
+} from "../../db/inlineMenus.js";
+import type { InlineMenu } from "../../db/schema.js";
+import logger from "../../logger.js";
+import { CLEANUP_INTERVAL_MS } from "../../constants/index.js";
 import {
   totalPages,
   buildMenuText,
   buildMenuKeyboard,
   buildConfirmKeyboard,
   disableMenu,
-} from "./render";
+} from "./render.js";
 
 export async function sendForgetMenu(ctx: Context): Promise<void> {
   const userId = ctx.from!.id;

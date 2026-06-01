@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
-import { db } from "./index";
-import { groupEnabledThreads } from "./schema";
-import logger from "../logger";
+import { db } from "./index.js";
+import { groupEnabledThreads } from "./schema.js";
+import logger from "../logger.js";
 
 // Режим работы бота в треде:
 //   "chat"   — полноценное общение (decision LLM + ответы)
