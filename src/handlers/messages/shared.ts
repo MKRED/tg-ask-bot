@@ -11,6 +11,27 @@ export function processingKey(chatId: number, threadId = 0): string {
   return `${chatId}:${threadId}`;
 }
 
+// Определяет, упомянут ли бот в сообщении через @username (или text_mention).
+// Username берём динамически из ctx.me (кэш getMe после bot.init) — хардкодить в env не нужно.
+// Работает и для текста (entities), и для фото с подписью (caption_entities).
+export function isBotMentioned(ctx: any): boolean {
+  const me: string | undefined = ctx.me?.username;
+  const text: string | undefined = ctx.message?.text ?? ctx.message?.caption;
+  const entities = ctx.message?.entities ?? ctx.message?.caption_entities;
+  if (!text || !entities) return false;
+
+  for (const ent of entities) {
+    // @username — entity типа "mention": сравниваем вырезанную подстроку с @username бота
+    if (ent.type === "mention" && me) {
+      const mention = text.substring(ent.offset, ent.offset + ent.length);
+      if (mention.toLowerCase() === `@${me.toLowerCase()}`) return true;
+    }
+    // text_mention — упоминание пользователя без username (у ботов почти не встречается, но проверяем по id)
+    if (ent.type === "text_mention" && ent.user?.id === ctx.me?.id) return true;
+  }
+  return false;
+}
+
 export function splitMessage(text: string): string[] {
   if (text.length <= MAX_MSG_LENGTH) return [text];
 

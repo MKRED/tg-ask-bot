@@ -10,7 +10,7 @@ import { saveImage } from "../../db/savedImages";
 import { upsertUser } from "../../db/users";
 import { extractForwardInfo } from "../../utils/groupFormat";
 import { retry } from "../../utils/retry";
-import { processing, processingKey, sendResponseWithImage } from "./shared";
+import { processing, processingKey, sendResponseWithImage, isBotMentioned } from "./shared";
 import { GROUP_DECISION_MSGS, GROUP_FULL_CONTEXT_SIZE } from "../../constants";
 import { config } from "../../config";
 import logger from "../../logger";
@@ -121,8 +121,11 @@ export function registerGroupPhotoHandler(bot: Bot): void {
       })();
     }
 
-    // Если фото является reply на сообщение бота — сразу отвечаем, decision LLM не нужен
+    // Прямое обращение к боту — reply на его сообщение или @упоминание в подписи к фото.
+    // В обоих случаях decision LLM не нужен: отвечаем сразу.
     const isReplyToBot = ctx.message.reply_to_message?.from?.id === ctx.me.id;
+    const isMentioned = isBotMentioned(ctx);
+    const isDirectAddress = isReplyToBot || isMentioned;
 
     const key = processingKey(chatId, threadId);
     if (processing.has(key)) return;
@@ -131,12 +134,12 @@ export function registerGroupPhotoHandler(bot: Bot): void {
     let typingInterval: ReturnType<typeof setInterval> | null = null;
 
     try {
-      if (!isReplyToBot) {
+      if (!isDirectAddress) {
         const decisionBuffer = await getBuffer(chatId, threadId, GROUP_DECISION_MSGS);
         const { shouldRespond } = await checkShouldRespond(chatId, threadId, decisionBuffer);
         if (!shouldRespond) return;
       } else {
-        logger.info({ chatId, threadId }, "Reply to bot detected, skipping decision LLM");
+        logger.info({ chatId, threadId, isReplyToBot, isMentioned }, "Direct address detected, skipping decision LLM");
       }
 
       const threadOpts = threadId !== 0 ? { message_thread_id: threadId } : {};
