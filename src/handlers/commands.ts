@@ -71,6 +71,7 @@ export function registerCommands(bot: Bot): void {
       "/help — помощь\n\n" +
       "<b>Команды для групп (только администраторы):</b>\n" +
       "/botstart — включить бота в текущем разделе\n" +
+      "/botingest — режим «пожиратель»: бот молча собирает картинки в базу\n" +
       "/botstop — выключить бота в текущем разделе",
       { parse_mode: "HTML" }
     )
@@ -125,9 +126,21 @@ export function registerCommands(bot: Bot): void {
     const chatId = ctx.chat!.id;
     const t0 = Date.now();
     const threadId = ctx.message?.message_thread_id ?? 0;
-    await enableThread(chatId, threadId, userId);
+    await enableThread(chatId, threadId, userId, "chat");
     logger.info({ chatId, threadId, userId, durationMs: Date.now() - t0 }, "Bot enabled in thread");
     return ctx.reply("Бот включён в этом разделе.");
+  });
+
+  bot.command("botingest", async (ctx) => {
+    if (!(await ensureGroupAdmin(ctx, "botingest"))) return;
+
+    const userId = ctx.from!.id;
+    const chatId = ctx.chat!.id;
+    const t0 = Date.now();
+    const threadId = ctx.message?.message_thread_id ?? 0;
+    await enableThread(chatId, threadId, userId, "ingest");
+    logger.info({ chatId, threadId, userId, durationMs: Date.now() - t0 }, "Bot ingest mode enabled in thread");
+    return ctx.reply("Режим «пожиратель» включён: молча собираю картинки в базу, отвечать не буду.");
   });
 
   bot.command("botstop", async (ctx) => {

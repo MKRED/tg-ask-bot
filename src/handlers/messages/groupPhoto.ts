@@ -4,7 +4,7 @@ import { analyzeImageOllama } from "../../ai/ollama";
 import { askGroupChat } from "../../ai/groupChat";
 import { checkShouldRespond } from "../../ai/groupDecision";
 import { getGroupNsfwEnabled } from "../../db/groupChats";
-import { isThreadEnabled } from "../../db/groupEnabledThreads";
+import { getThreadMode } from "../../db/groupEnabledThreads";
 import { appendToBuffer, getBuffer } from "../../db/groupMessages";
 import { saveImage } from "../../db/savedImages";
 import { upsertUser } from "../../db/users";
@@ -24,8 +24,8 @@ export function registerGroupPhotoHandler(bot: Bot): void {
 
     logger.debug({ chatId, threadId }, "Group photo message received");
 
-    const enabled = await isThreadEnabled(chatId, threadId);
-    if (!enabled) {
+    const mode = await getThreadMode(chatId, threadId);
+    if (!mode) {
       logger.debug({ chatId, threadId }, "Thread not enabled, ignoring photo");
       return;
     }
@@ -79,22 +79,8 @@ export function registerGroupPhotoHandler(bot: Bot): void {
       }
     }
 
-    // Встраиваем forward-инфо в контент если есть
-    const bufferContent = isForward && forwardFrom
-      ? `[переслано от ${forwardFrom}]\n${userContent}`
-      : userContent;
-
-    await appendToBuffer({
-      chatId, threadId,
-      senderUserId: userId,
-      senderName,
-      senderUsername,
-      content: bufferContent,
-      isForward,
-      forwardFrom,
-    });
-
-    // Всегда сохраняем изображение в БД — fire-and-forget
+    // Всегда сохраняем изображение в БД — fire-and-forget.
+    // Делаем это до буфера: в режиме ingest буфер не нужен, а картинку всё равно надо поглотить.
     if (imageAnalysis) {
       const analysis = imageAnalysis;
       (async () => {
@@ -120,6 +106,29 @@ export function registerGroupPhotoHandler(bot: Bot): void {
           .catch((err) => logger.warn({ chatId, threadId, err }, "Failed to save group photo to DB"));
       })();
     }
+
+    // Режим «пожиратель»: картинку обработали — на этом всё. Ни буфера, ни decision, ни ответа.
+    // saved=false означает, что и Gemini, и Ollama не смогли распознать картинку (см. error-логи выше),
+    // поэтому в базу ничего не ушло — картинка молча пропущена.
+    if (mode === "ingest") {
+      logger.info({ chatId, threadId, saved: imageAnalysis !== null }, "Ingest mode: photo processed, staying silent");
+      return;
+    }
+
+    // Встраиваем forward-инфо в контент если есть
+    const bufferContent = isForward && forwardFrom
+      ? `[переслано от ${forwardFrom}]\n${userContent}`
+      : userContent;
+
+    await appendToBuffer({
+      chatId, threadId,
+      senderUserId: userId,
+      senderName,
+      senderUsername,
+      content: bufferContent,
+      isForward,
+      forwardFrom,
+    });
 
     // Прямое обращение к боту — reply на его сообщение или @упоминание в подписи к фото.
     // В обоих случаях decision LLM не нужен: отвечаем сразу.

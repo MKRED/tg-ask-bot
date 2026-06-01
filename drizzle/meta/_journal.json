@@ -92,6 +92,13 @@
       "when": 1780032924067,
       "tag": "0012_plain_wolf_cub",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1780282410595,
+      "tag": "0013_glorious_shard",
+      "breakpoints": true
     }
   ]
 }

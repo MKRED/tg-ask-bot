@@ -99,6 +99,8 @@ export const groupEnabledThreads = pgTable("group_enabled_threads", {
   chatId: bigint("chat_id", { mode: "number" }).notNull(),
   threadId: bigint("thread_id", { mode: "number" }).notNull().default(0),
   enabledBy: bigint("enabled_by", { mode: "number" }).notNull(),
+  // Режим треда: "chat" — полноценное общение, "ingest" — молчаливое поглощение картинок в базу
+  mode: text("mode").notNull().default("chat"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [unique().on(table.chatId, table.threadId)]);
 

@@ -35,10 +35,10 @@ src/
     savedImages.ts       — saveImage(), findSimilarImages(), findImagesByTags(), countUserImages() (pgvector cosine)
     inlineMenus.ts       — inline keyboard menu state
     groupChats.ts        — upsertGroupChat(), getGroupChat(), getGroupNsfwEnabled()
-    groupEnabledThreads.ts — enableThread(), disableThread(), isThreadEnabled()
+    groupEnabledThreads.ts — enableThread(mode), disableThread(), getThreadMode(), isThreadEnabled() (mode: "chat" | "ingest")
     groupMessages.ts     — appendToBuffer(), getBuffer(), pruneBuffer() (sliding window, GROUP_BUFFER_SIZE rows)
   handlers/
-    commands.ts          — /start, /help, /clear, /facts, /account, /botstart, /botstop
+    commands.ts          — /start, /help, /clear, /facts, /account, /botstart, /botingest, /botstop
     myChatMember.ts      — bot join/leave group events → upsertGroupChat()
     messages/
       index.ts           — registerMessageHandlers()
@@ -188,6 +188,11 @@ someAsyncWork()
 
 Bot response is saved to buffer inside `askGroupChat()` as fire-and-forget (DB failure must not block sending).
 
-**Group thread whitelist** — bot only responds in threads where `/botstart` was run (row in `group_enabled_threads`). Check via `isThreadEnabled(chatId, threadId)` at the top of every group handler. `threadId = 0` is the sentinel for groups without topics.
+**Group thread whitelist** — bot only acts in threads with a row in `group_enabled_threads`. Each row has a `mode`: `"chat"` (full conversation, set by `/botstart`) or `"ingest"` (silent image absorption, set by `/botingest`). Check via `getThreadMode(chatId, threadId)` at the top of every group handler — `null` = not enabled, ignore. `isThreadEnabled()` is a thin boolean wrapper kept for convenience. `threadId = 0` is the sentinel for groups without topics.
+
+**Ingest mode** (`mode === "ingest"`) — "pictures-only" thread: bot silently feeds photos into the image DB and never replies.
+- `groupPhoto.ts`: runs Gemini→Ollama analysis + embedding + `saveImage` (fire-and-forget, **before** the buffer), then `return` — skipping `appendToBuffer`, the processing lock, the decision LLM, and any response. No concurrency cap by design (a picture topic is high-volume).
+- `groupText.ts`: returns immediately — text in an ingest thread is ignored entirely (not even buffered).
+- `/botstop` clears the row regardless of mode. Re-running `/botstart` or `/botingest` switches the mode in place (upsert via `onConflictDoUpdate`).
 
 **Reply-to-bot bypass** — if `ctx.message.reply_to_message?.from?.id === ctx.me.id`, skip decision LLM and respond immediately. Log with `logger.info` for visibility.

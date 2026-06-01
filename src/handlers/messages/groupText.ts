@@ -2,7 +2,7 @@ import type { Bot } from "grammy";
 import { askGroupChat } from "../../ai/groupChat";
 import { checkShouldRespond } from "../../ai/groupDecision";
 import { getGroupNsfwEnabled } from "../../db/groupChats";
-import { isThreadEnabled } from "../../db/groupEnabledThreads";
+import { getThreadMode } from "../../db/groupEnabledThreads";
 import { appendToBuffer, getBuffer } from "../../db/groupMessages";
 import { upsertUser } from "../../db/users";
 import { extractForwardInfo } from "../../utils/groupFormat";
@@ -20,9 +20,14 @@ export function registerGroupTextHandler(bot: Bot): void {
 
     logger.debug({ chatId, threadId }, "Group text message received");
 
-    const enabled = await isThreadEnabled(chatId, threadId);
-    if (!enabled) {
+    const mode = await getThreadMode(chatId, threadId);
+    if (!mode) {
       logger.debug({ chatId, threadId }, "Thread not enabled, ignoring");
+      return;
+    }
+    // Режим «пожиратель» — только картинки. Текст в таком треде полностью игнорируем.
+    if (mode === "ingest") {
+      logger.debug({ chatId, threadId }, "Ingest mode: ignoring text message");
       return;
     }
 

@@ -1,0 +1,1 @@
+ALTER TABLE "group_enabled_threads" ADD COLUMN "mode" text DEFAULT 'chat' NOT NULL;
