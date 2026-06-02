@@ -1,64 +1,66 @@
-import { eq } from "drizzle-orm";
-import { HttpsProxyAgent } from "https-proxy-agent";
+import { eq, inArray, and } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { groupIngestImages } from "../db/schema.js";
-import { analyzeImageOllama } from "../ai/ollama.js";
-import { httpsPost } from "../utils/http.js";
-import { config } from "../config.js";
 
-async function getTelegramFileUrl(fileId: string): Promise<string> {
-  const agent = config.proxyUrl ? new HttpsProxyAgent(config.proxyUrl) : undefined;
-  const json = await httpsPost(
-    `https://api.telegram.org/bot${config.botToken}/getFile`,
-    { file_id: fileId },
-    agent,
-  ) as any;
-  if (!json.ok) throw new Error(`getFile failed: ${JSON.stringify(json)}`);
-  return `https://api.telegram.org/file/bot${config.botToken}/${json.result.file_path}`;
-}
-
+// Сбрасывает провалившиеся ingest-картинки (analyzed_by='failed') обратно в очередь,
+// чтобы их заново подхватил работающий фоновый воркер (ingestWorker.ts).
+// Запускать после того, как разобрался с причиной провала (она лежит в колонке last_error).
+//
+// Использование:
+//   yarn tsx src/scripts/retryFailedIngest.ts            # все failed-строки
+//   yarn tsx src/scripts/retryFailedIngest.ts 12 34 56   # только указанные id
 async function main() {
-  const rows = await db.select().from(groupIngestImages).where(eq(groupIngestImages.analyzedBy, "failed"));
-  console.log(`Failed rows: ${rows.length}`);
+  const idArgs = process.argv.slice(2).map(Number).filter((n) => Number.isInteger(n));
 
-  for (const row of rows) {
-    console.log(`\n--- id=${row.id} fileId=${row.fileId?.slice(0, 30)}...`);
+  // Показываем, что собираемся повторить, вместе с причиной провала
+  const targets = await db
+    .select({
+      id: groupIngestImages.id,
+      chatId: groupIngestImages.chatId,
+      threadId: groupIngestImages.threadId,
+      route: groupIngestImages.route,
+      lastError: groupIngestImages.lastError,
+    })
+    .from(groupIngestImages)
+    .where(
+      idArgs.length > 0
+        ? and(eq(groupIngestImages.analyzedBy, "failed"), inArray(groupIngestImages.id, idArgs))
+        : eq(groupIngestImages.analyzedBy, "failed"),
+    );
 
-    if (!row.fileId) {
-      console.log("  No fileId, skipping");
-      continue;
-    }
-
-    let fileUrl: string;
-    try {
-      fileUrl = await getTelegramFileUrl(row.fileId);
-      console.log("  getFile: OK");
-    } catch (err) {
-      console.error("  getFile failed:", err);
-      continue;
-    }
-
-    try {
-      const result = await analyzeImageOllama(fileUrl);
-      console.log("  Ollama: OK");
-      console.log("  description:", result.description.slice(0, 80));
-      console.log("  moodTags:", result.moodTags);
-      console.log("  isNsfw:", result.isNsfw);
-
-      await db.update(groupIngestImages).set({
-        analyzedBy: "ollama",
-        moodTags: result.moodTags,
-        contentTags: result.contentTags,
-        isNsfw: result.isNsfw,
-      }).where(eq(groupIngestImages.id, row.id));
-      console.log("  DB updated");
-    } catch (err) {
-      console.error("  Ollama failed:", err);
-    }
+  if (targets.length === 0) {
+    console.log("No failed ingest rows to retry.");
+    process.exit(0);
   }
 
-  console.log("\nDone");
+  console.log(`Re-enqueueing ${targets.length} failed ingest row(s):`);
+  for (const t of targets) {
+    console.log(`  id=${t.id} chat=${t.chatId} thread=${t.threadId} route=${t.route} lastError=${t.lastError ?? "-"}`);
+  }
+
+  // Сброс в очередь: статус pending, счётчик попыток обнулён, время повтора — сейчас,
+  // reported_at снят (строка снова попадёт в будущую сводку). route НЕ трогаем —
+  // провалившиеся строки уже в нужной полосе (как правило ollama), повторный прогон
+  // через Gemini только потратил бы лишний заблокированный запрос.
+  const ids = targets.map((t) => t.id);
+  await db
+    .update(groupIngestImages)
+    .set({
+      analyzedBy: "pending",
+      attempts: 0,
+      nextAttemptAt: new Date(),
+      reportedAt: null,
+      lastError: null,
+      processedAt: null,
+      processingMs: null,
+    })
+    .where(inArray(groupIngestImages.id, ids));
+
+  console.log(`\nDone. ${ids.length} row(s) reset to 'pending' — the running bot's worker will pick them up.`);
   process.exit(0);
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

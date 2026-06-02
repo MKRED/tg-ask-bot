@@ -5,7 +5,7 @@ import { registerMessageHandlers } from "./handlers/messages/index.js";
 import { registerForgetCallbacks, startMenuCleanupScheduler } from "./handlers/forgetMenu/index.js";
 import { registerMyChatMemberHandler } from "./handlers/myChatMember.js";
 import { checkStaleDigests } from "./handlers/messages/ingestDigest.js";
-import { retryPendingImages } from "./handlers/messages/retryPendingIngest.js";
+import { startIngestWorker } from "./handlers/messages/ingestWorker.js";
 import logger from "./logger.js";
 
 registerMyChatMemberHandler(bot);
@@ -19,12 +19,11 @@ bot.catch((err) => {
 
 startMenuCleanupScheduler(bot);
 
-// Порядок критичен: сначала retry pending (анализируем прерванные картинки),
-// потом checkStaleDigests (отправляем/перевооружаем дайджесты).
-// Если поменять местами — checkStaleDigests отправит дайджест с pending-строками и сразу удалит их.
-retryPendingImages(bot.api)
-  .then(() => checkStaleDigests(bot.api))
-  .catch((err) => logger.error({ err }, "Startup ingest recovery failed"));
+// Фоновый воркер непрерывно разгребает ingest-очередь, в т.ч. строки "pending",
+// чей анализ был прерван рестартом (at-least-once). checkStaleDigests безопасен —
+// он смотрит только на терминальные неотправленные строки, а pending добьёт воркер.
+startIngestWorker(bot.api);
+checkStaleDigests(bot.api).catch((err) => logger.error({ err }, "Startup stale digest check failed"));
 
 run(bot);
 logger.info("Bot is running...");

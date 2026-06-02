@@ -43,7 +43,7 @@ src/
     groupChats.ts        — upsertGroupChat(), getGroupChat(), getGroupNsfwEnabled()
     groupEnabledThreads.ts — enableThread(mode), disableThread(), getThreadMode(), isThreadEnabled() (mode: "chat" | "ingest")
     groupMessages.ts     — appendToBuffer(), getBuffer(), pruneBuffer() (sliding window, GROUP_BUFFER_SIZE rows)
-    groupIngestImages.ts — addIngestImage(), getPendingBatch(), deleteBatchByIds(), getStaleIngestThreads() (ingest digest queue)
+    groupIngestImages.ts — durable ingest queue: enqueueIngestImage(), claimQueued(), markDone(), routeToOllama(), deferRetry(), markFailed(), getPendingBatch(), deleteBatchByIds(), markReportedByIds(), getStaleIngestThreads()
   handlers/
     commands.ts          — /start, /help, /clear, /facts, /account, /botstart, /botingest, /botstop
     myChatMember.ts      — bot join/leave group events → upsertGroupChat()
@@ -54,9 +54,9 @@ src/
       groupText.ts       — group text handler (group/supergroup)
       groupPhoto.ts      — group photo handler (group/supergroup)
       shared.ts          — processing Set<string>, processingKey(), sendMessage(), sendResponseWithImage()
-      photoAnalysis.ts   — analyzePhotoWithFallback() (Gemini→Ollama, never throws)
+      photoAnalysis.ts   — analyzePhotoWithFallback() (Gemini→Ollama, never throws) — used by DM/chat-mode photo only
+      ingestWorker.ts    — startIngestWorker() — background two-lane worker draining the ingest queue (Gemini parallel, Ollama serial + circuit breaker)
       ingestDigest.ts    — scheduleDigest(), checkStaleDigests() (5-min debounce digest for ingest threads)
-      retryPendingIngest.ts — retryPendingImages() (startup: re-analyze pending rows after restart)
     forgetMenu/
       index.ts           — sendForgetMenu(), registerForgetCallbacks(), startMenuCleanupScheduler()
       render.ts          — buildMenuText(), buildMenuKeyboard(), buildConfirmKeyboard(), disableMenu()
@@ -74,6 +74,7 @@ src/
     ai.constants.ts      — LAST_EXCHANGES, IMAGE_MARKER
     db.constants.ts      — MAX_HISTORY_MESSAGES, MAX_STORED_MESSAGES, MAX_FACTS, GROUP_BUFFER_SIZE, GROUP_DECISION_MSGS, GROUP_FULL_CONTEXT_SIZE
     ui.constants.ts      — MAX_MSG_LENGTH, FACTS_PER_PAGE, CLEANUP_INTERVAL_MS, GROUP_MSG_TIMEZONE
+    ingest.constants.ts  — INGEST_TICK_MS, GEMINI_INGEST_CONCURRENCY, OLLAMA_INGEST_CONCURRENCY, OLLAMA_MAX_ATTEMPTS, OLLAMA_BACKOFF_*, OLLAMA_HEALTH_TIMEOUT_MS
     index.ts             — barrel export
   strings/
     replies.ts           — FACT_SAVED_REPLIES, BUSY_REPLIES, randomBusyReply(), randomFactSavedReply()
@@ -83,6 +84,7 @@ src/
     groupFormat.ts       — formatTimestamp(), formatBufferForLLM(), extractForwardInfo()
   scripts/
     backfillEmbeddings.ts — one-time script to fill missing embeddings
+    retryFailedIngest.ts  — reset failed ingest rows back to "pending" so the running worker re-processes them
 ```
 
 ## Code conventions
@@ -200,19 +202,23 @@ Bot response is saved to buffer inside `askGroupChat()` as fire-and-forget (DB f
 
 **Group thread whitelist** — bot only acts in threads with a row in `group_enabled_threads`. Each row has a `mode`: `"chat"` (full conversation, set by `/botstart`) or `"ingest"` (silent image absorption, set by `/botingest`). Check via `getThreadMode(chatId, threadId)` at the top of every group handler — `null` = not enabled, ignore. `isThreadEnabled()` is a thin boolean wrapper kept for convenience. `threadId = 0` is the sentinel for groups without topics.
 
-**Ingest mode** (`mode === "ingest"`) — "pictures-only" thread: bot silently feeds photos into the image DB and never replies.
-- `groupPhoto.ts`: inserts a `"pending"` row into `group_ingest_images` immediately after `getFile` (before analysis). Runs `analyzePhotoWithFallback()` (Gemini→Ollama via semaphore). Updates the row with the real `analyzedBy` after analysis. Runs `saveImage` fire-and-forget. Then calls `scheduleDigest()` and returns — skipping `appendToBuffer`, the processing lock, the decision LLM, and any response. No concurrency cap by design (a picture topic is high-volume); Ollama is protected by an internal semaphore (max 1 concurrent).
+**Ingest mode** (`mode === "ingest"`) — "pictures-only" thread: bot silently feeds photos into the image DB and never replies. Analysis is **decoupled from the message handler** via a durable queue (`group_ingest_images`) drained by a background worker, so the processing rate is set by the worker, not by Telegram's message stream (this is what killed the old inline approach — a flood of blocked images all hit Ollama at once and crashed the runner).
+- `groupPhoto.ts` (ingest branch): only calls `enqueueIngestImage()` (inserts a `pending`/`route=gemini` row holding just the `fileId`) and returns. **No `getFile`, no analysis, no `saveImage`, no `scheduleDigest`** in the handler.
 - `groupText.ts`: returns immediately — text in an ingest thread is ignored entirely (not even buffered).
-- `/botstop` clears the row regardless of mode. Re-running `/botstart` or `/botingest` switches the mode in place (upsert via `onConflictDoUpdate`).
+- `/botstop` clears the thread row regardless of mode. Re-running `/botstart` or `/botingest` switches the mode in place.
 
-**Ingest digest** — after 5 min of no new images in an ingest thread, `ingestDigest.ts` sends a summary to the chat:
-- `scheduleDigest(chatId, threadId, api)` — resets a per-thread debounce timer to 5 min (in-memory `Map`). Called after each image is processed (not on receipt), so the 5-min window starts from the last *analyzed* image.
-- `sendDigest()` — reads pending rows from `group_ingest_images`, captures their IDs before `sendMessage`, then deletes only those IDs (protects against concurrent arrivals during the send).
-- `checkStaleDigests(api)` — called at bot startup after `retryPendingImages`; for each thread with pending rows: if last image ≥5 min ago → send immediately, else re-arm timer for the remainder.
-- `group_ingest_images` is a transient queue — rows are **deleted** after the digest is sent, not archived.
+**Ingest worker — two lanes** (`ingestWorker.ts`, started in `index.ts` via `startIngestWorker(api)`): each lane is a recursive-`setTimeout` loop (no overlap between ticks) that claims `pending` rows of its `route` via `claimQueued()` (`WHERE analyzed_by='pending' AND route=? AND next_attempt_at<=now() ORDER BY next_attempt_at`). An in-memory `Set<id>` per lane prevents double-claim at runtime; on restart any non-terminal row is still `pending` → re-processed (at-least-once).
+- **Gemini lane**: up to `GEMINI_INGEST_CONCURRENCY` (3) in parallel. Success → `markDone(gemini)` + `saveImage` (fire-and-forget) + `scheduleDigest`. Block/any error → `routeToOllama()` (sets `route='ollama'`, resets `attempts`; not a failure).
+- **Ollama lane**: strictly serial (`OLLAMA_INGEST_CONCURRENCY=1`; plus the internal semaphore in `ai/ollama.ts`). On failure: `attempts+1`; if it's a "down"-type error (`connection refused` / `model runner` / `fetch failed` / timeout) → trip the **circuit breaker** (`ollamaDown=true`); `deferRetry()` with exponential backoff `min(OLLAMA_BACKOFF_CAP_MS, BASE·2^(n-1))` (pushes the row to the back of the queue — poison images don't block the lane). After `OLLAMA_MAX_ATTEMPTS` (6) → `markFailed("failed")`.
+- **Circuit breaker**: while `ollamaDown`, the Ollama lane stops claiming rows and instead health-pings `GET {ollamaUrl}/api/version` each tick; it resumes the instant Ollama answers. This is how "wait until Ollama comes back up" works **without burning rows' attempt budgets** during an outage (serial loop = only 1 row ever in flight, so an outage burns at most one attempt before the breaker pauses everything).
+- `getFile` happens **in the worker** right before download (handler stores only `fileId`) — avoids Telegram `file_path` URL expiry for backlogged rows. A getFile failure → `markFailed("telegram_error")`.
 
-**Ingest restart recovery** — startup sequence in `index.ts` is order-critical:
-1. `retryPendingImages(api)` (`retryPendingIngest.ts`) — finds rows with `analyzedBy="pending"` (analysis was in-flight when bot was killed), re-downloads each via `getFile`, re-runs `analyzePhotoWithFallback`, updates the row, calls `scheduleDigest` per row.
-2. `.then(() => checkStaleDigests(api))` — only after all pending rows are resolved. If reversed, `checkStaleDigests` would send a digest with unresolved `pending` rows (they match no stat bucket) and delete them permanently.
+**Ingest digest** — after 5 min of no newly *finalized* images, `ingestDigest.ts` sends a summary:
+- `scheduleDigest(chatId, threadId, api)` — resets a per-thread 5-min debounce timer (in-memory `Map`). Called by the **worker** after each row reaches a terminal state, so the window starts from the last *processed* image (a long Ollama outage delays the digest until the backlog drains — it never fires a partial summary).
+- `sendDigest()` — **guard first**: if `countPending() > 0` (rows still `pending`, e.g. waiting out an Ollama outage), it re-arms the timer and returns without sending — so the summary is never partial. Otherwise reads terminal, not-yet-reported rows (`getPendingBatch`: `analyzed_by != 'pending' AND reported_at IS NULL`), captures IDs before `sendMessage`, then **deletes only successful rows** (`gemini`/`ollama`) and **marks `failed`/`telegram_error` rows with `reported_at`** (kept in the table with `last_error` for manual inspection/retry — see `scripts/retryFailedIngest.ts`).
+- The digest reports processing-time stats from `processed_at`/`processing_ms` (wall-clock span + avg sec/image + total analysis time).
+- `checkStaleDigests(api)` — at startup, for each thread with un-reported rows: if last image ≥5 min ago → `sendDigest` immediately (no-ops safely if only `pending` rows remain), else re-arm timer for the remainder.
+
+**Ingest restart recovery** — no special order needed anymore: `startIngestWorker(api)` is started, then `checkStaleDigests(api)`. The worker continuously drains `pending` rows (including any whose analysis was interrupted by the kill), calling `scheduleDigest` as it finalizes them. `checkStaleDigests` is safe to run anytime — it only looks at terminal, un-reported rows.
 
 **Reply-to-bot bypass** — if `ctx.message.reply_to_message?.from?.id === ctx.me.id`, skip decision LLM and respond immediately. Log with `logger.info` for visibility.

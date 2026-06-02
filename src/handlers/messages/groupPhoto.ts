@@ -5,13 +5,12 @@ import { checkShouldRespond } from "../../ai/groupDecision.js";
 import { getGroupNsfwEnabled } from "../../db/groupChats.js";
 import { getThreadMode } from "../../db/groupEnabledThreads.js";
 import { appendToBuffer, getBuffer } from "../../db/groupMessages.js";
-import { addIngestImage, updateIngestImage } from "../../db/groupIngestImages.js";
+import { enqueueIngestImage } from "../../db/groupIngestImages.js";
 import { saveImage } from "../../db/savedImages.js";
 import { upsertUser } from "../../db/users.js";
 import { extractForwardInfo } from "../../utils/groupFormat.js";
 import { retry } from "../../utils/retry.js";
 import { processing, processingKey, sendResponseWithImage, isBotMentioned } from "./shared.js";
-import { scheduleDigest } from "./ingestDigest.js";
 import { analyzePhotoWithFallback } from "./photoAnalysis.js";
 import { GROUP_DECISION_MSGS, GROUP_FULL_CONTEXT_SIZE } from "../../constants/index.js";
 import { config } from "../../config.js";
@@ -34,6 +33,21 @@ export function registerGroupPhotoHandler(bot: Bot): void {
 
     upsertUser(ctx.from).catch((err) => logger.warn({ chatId, err }, "upsertUser failed"));
 
+    // Режим «пожиратель»: только кладём картинку в durable-очередь и уходим.
+    // Скачивание (getFile) и анализ (Gemini→Ollama) выполняет фоновый воркер (ingestWorker.ts),
+    // чтобы темп обработки задавали мы, а не поток сообщений Telegram.
+    if (mode === "ingest") {
+      const photo = ctx.message.photo.at(-1)!;
+      const caption = ctx.message.caption ?? null;
+      try {
+        const id = await enqueueIngestImage({ chatId, threadId, fileId: photo.file_id, senderUserId: userId, caption });
+        logger.info({ chatId, threadId, id }, "Ingest photo enqueued");
+      } catch (err) {
+        logger.error({ chatId, threadId, err }, "Failed to enqueue ingest photo");
+      }
+      return;
+    }
+
     logger.info({ chatId, threadId }, "Group photo received — analyzing");
 
     const photo = ctx.message.photo.at(-1)!;
@@ -41,15 +55,7 @@ export function registerGroupPhotoHandler(bot: Bot): void {
       logger.error({ chatId, threadId, err }, "getFile failed for group photo");
       return null;
     });
-    if (!file) {
-      // В ingest-режиме учитываем ошибку Telegram в статистике батча
-      if (mode === "ingest") {
-        addIngestImage({ chatId, threadId, fileId: null, analyzedBy: "telegram_error", moodTags: [], contentTags: [], isNsfw: false })
-          .catch((err) => logger.warn({ chatId, threadId, err }, "Failed to track telegram_error in ingest batch"));
-        scheduleDigest(chatId, threadId, ctx.api);
-      }
-      return;
-    }
+    if (!file) return;
 
     const fileUrl = `https://api.telegram.org/file/bot${config.botToken}/${file.file_path}`;
     const { isForward, forwardFrom } = extractForwardInfo(ctx.message);
@@ -57,23 +63,7 @@ export function registerGroupPhotoHandler(bot: Bot): void {
     const senderUsername = ctx.from.username ?? null;
     const caption = ctx.message.caption ?? null;
 
-    // В ingest-режиме вставляем строку "pending" сразу, до анализа.
-    // Если бот упадёт во время очереди Ollama — картинка уже в БД и не потеряется из статистики.
-    let ingestRowId: number | null = null;
-    if (mode === "ingest") {
-      try {
-        ingestRowId = await addIngestImage({
-          chatId, threadId, fileId: photo.file_id,
-          analyzedBy: "pending", moodTags: [], contentTags: [], isNsfw: false,
-          senderUserId: userId,
-          caption,
-        });
-      } catch (err) {
-        logger.warn({ chatId, threadId, err }, "Failed to insert pending ingest row");
-      }
-    }
-
-    const { imageAnalysis, analyzedBy } = await analyzePhotoWithFallback(fileUrl, { chatId, threadId });
+    const { imageAnalysis } = await analyzePhotoWithFallback(fileUrl, { chatId, threadId });
 
     let userContent: string;
     if (imageAnalysis) {
@@ -84,8 +74,7 @@ export function registerGroupPhotoHandler(bot: Bot): void {
       userContent = "[User sent a photo, but it could not be analyzed. React in your own style.]";
     }
 
-    // Всегда сохраняем изображение в БД — fire-and-forget.
-    // Делаем это до буфера: в режиме ingest буфер не нужен, а картинку всё равно надо поглотить.
+    // Сохраняем изображение в БД — fire-and-forget.
     if (imageAnalysis) {
       const analysis = imageAnalysis;
       (async () => {
@@ -110,21 +99,6 @@ export function registerGroupPhotoHandler(bot: Bot): void {
           .then(() => logger.info({ chatId, threadId, moodTags: analysis.moodTags, isNsfw: analysis.isNsfw }, "Group photo saved to DB"))
           .catch((err) => logger.warn({ chatId, threadId, err }, "Failed to save group photo to DB"));
       })();
-    }
-
-    // Режим «пожиратель»: обновляем pending-строку реальным результатом анализа и уходим.
-    if (mode === "ingest") {
-      if (ingestRowId !== null) {
-        updateIngestImage(ingestRowId, {
-          analyzedBy,
-          moodTags: imageAnalysis?.moodTags ?? [],
-          contentTags: imageAnalysis?.contentTags ?? [],
-          isNsfw: imageAnalysis?.isNsfw ?? false,
-        }).catch((err) => logger.warn({ chatId, threadId, err }, "Failed to update ingest image"));
-      }
-      scheduleDigest(chatId, threadId, ctx.api);
-      logger.info({ chatId, threadId, analyzedBy }, "Ingest mode: photo processed, staying silent");
-      return;
     }
 
     // Встраиваем forward-инфо в контент если есть

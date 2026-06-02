@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, serial, bigint, varchar, text, timestamp, boolean, integer, unique, customType } from "drizzle-orm/pg-core";
+import { pgTable, serial, bigint, varchar, text, timestamp, boolean, integer, unique, index, customType } from "drizzle-orm/pg-core";
 
 const vector = customType<{ data: number[]; driverData: string; config: { dimensions: number } }>({
   dataType(config) {
@@ -127,16 +127,34 @@ export const groupIngestImages = pgTable("group_ingest_images", {
   threadId: integer("thread_id").notNull().default(0),
   // null если картинку не удалось получить от Telegram до анализа
   fileId: text("file_id"),
-  // "pending" | "gemini" | "ollama" | "failed" | "telegram_error"
+  // Маркер очереди / результат: "pending" (ещё в очереди) | "gemini" | "ollama" | "failed" | "telegram_error"
   analyzedBy: text("analyzed_by").notNull(),
+  // Какая полоса воркера обрабатывает строку: "gemini" (по умолчанию) → при блокировке/ошибке "ollama"
+  route: text("route").notNull().default("gemini"),
+  // Счётчик неудачных попыток в текущей полосе (сбрасывается при смене route)
+  attempts: integer("attempts").notNull().default(0),
+  // Воркер берёт строки с next_attempt_at <= now() и сортирует по нему (backoff уводит строку в конец)
+  nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
+  // Текст последней ошибки — для разбора провалившихся картинок
+  lastError: text("last_error"),
   moodTags: text("mood_tags").array().notNull().default(sql`'{}'::text[]`),
   contentTags: text("content_tags").array().notNull().default(sql`'{}'::text[]`),
   isNsfw: boolean("is_nsfw").notNull().default(false),
-  // Нужны для вызова saveImage при retry после рестарта
+  // Нужны для вызова saveImage при обработке (в т.ч. после рестарта)
   senderUserId: bigint("sender_user_id", { mode: "number" }),
   caption: text("caption"),
   savedAt: timestamp("saved_at").notNull().defaultNow(),
-});
+  // Момент перехода строки в терминальный статус — для статистики времени обработки
+  processedAt: timestamp("processed_at"),
+  // Фактическая длительность анализа конкретной картинки (мс)
+  processingMs: integer("processing_ms"),
+  // Когда строку уже включили в отправленную сводку. Успешные строки удаляются,
+  // а failed/telegram_error остаются с reported_at для ручного разбора и повтора.
+  reportedAt: timestamp("reported_at"),
+}, (table) => [
+  // Под claim-запрос воркера: WHERE analyzed_by='pending' AND route=? AND next_attempt_at<=now() ORDER BY next_attempt_at
+  index("ingest_queue_idx").on(table.analyzedBy, table.route, table.nextAttemptAt),
+]);
 
 export type GroupChat = typeof groupChats.$inferSelect;
 export type NewGroupChat = typeof groupChats.$inferInsert;
