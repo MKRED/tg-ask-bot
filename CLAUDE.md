@@ -26,7 +26,7 @@ src/
   config.ts              — env vars (requireEnv for mandatory, process.env for optional)
   logger.ts              — pino logger (daily rolling, pino-pretty in TTY)
   ai/
-    gemini.ts            — Gemini API: analyzeImage(), generateTextEmbedding(), generateImageEmbedding(), GeminiBlockedError
+    gemini.ts            — Gemini API: analyzeImage(), generateTextEmbedding(), generateImageEmbedding(), generateImageEmbeddingFromBuffer(), GeminiBlockedError
     openrouter.ts        — OpenRouter chat: askOpenRouter(), clearHistory(), addToHistory(), parseResponse()
     extractFacts.ts      — LLM fact extraction from conversation history
     ollama.ts            — Ollama fallback: analyzeImageOllama() (used when Gemini blocks an image)
@@ -38,15 +38,17 @@ src/
     messages.ts          — save/get/clear chat history (DM)
     users.ts             — upsertUser(), getUser(), getUserNsfwEnabled(), toggleNsfwEnabled(), updateUserProfile()
     facts.ts             — user facts CRUD
-    savedImages.ts       — saveImage(), findSimilarImages(), findRandomImages(), findImagesByTags(), countUserImages() (pgvector cosine)
+    savedImages.ts       — saveImage() → returns inserted ID, findSimilarImages(), findRandomImages(), findImagesByTags(), countUserImages() (pgvector cosine)
     searchEmbeddings.ts  — inline-query embedding cache: getCachedEmbedding(), cacheEmbedding() (normalized phrase → vector)
+    danbooruState.ts     — getDanbooruState(), setDanbooruStorageChat(), advanceDanbooruCursor() (singleton config row)
+    danbooruPosts.ts     — insertDanbooruPost(), markDanbooruPostDone/Failed/Skipped() (audit + mapping to saved_images)
     inlineMenus.ts       — inline keyboard menu state
     groupChats.ts        — upsertGroupChat(), getGroupChat(), getGroupNsfwEnabled()
     groupEnabledThreads.ts — enableThread(mode), disableThread(), getThreadMode(), isThreadEnabled() (mode: "chat" | "ingest")
     groupMessages.ts     — appendToBuffer(), getBuffer(), pruneBuffer() (sliding window, GROUP_BUFFER_SIZE rows)
     groupIngestImages.ts — durable ingest queue: enqueueIngestImage(), claimQueued(), markDone(), routeToOllama(), deferRetry(), markFailed(), getPendingBatch(), deleteBatchByIds(), markReportedByIds(), getStaleIngestThreads()
   handlers/
-    commands.ts          — /start, /help, /clear, /facts, /account, /botstart, /botingest, /botstop
+    commands.ts          — /start, /help, /clear, /facts, /account, /botstart, /botingest, /botstop, /setdanboorustorage
     myChatMember.ts      — bot join/leave group events → upsertGroupChat()
     inlineQuery.ts       — registerInlineQueryHandler() — inline image search (any chat): text → embedding (cached) → findSimilarImages → shuffled cached-photo results; empty query → findRandomImages (browse)
     messages/
@@ -78,6 +80,7 @@ src/
     ui.constants.ts      — MAX_MSG_LENGTH, FACTS_PER_PAGE, CLEANUP_INTERVAL_MS, GROUP_MSG_TIMEZONE
     ingest.constants.ts  — INGEST_TICK_MS, GEMINI_INGEST_CONCURRENCY, OLLAMA_INGEST_CONCURRENCY, OLLAMA_MAX_ATTEMPTS, OLLAMA_BACKOFF_*, OLLAMA_HEALTH_TIMEOUT_MS
     inline.constants.ts  — INLINE_MIN_QUERY_LEN, INLINE_POOL_SIZE, INLINE_SHOWN_COUNT, INLINE_BROWSE_COUNT, INLINE_CACHE_TIME
+    danbooru.constants.ts — DANBOORU_TICK_MS, DANBOORU_BATCH_SIZE, DANBOORU_UPLOAD_DELAY_MS, DANBOORU_SENDER_ID, DANBOORU_ALLOWED_EXTS
     index.ts             — barrel export
   strings/
     replies.ts           — FACT_SAVED_REPLIES, BUSY_REPLIES, randomBusyReply(), randomFactSavedReply()
@@ -85,9 +88,13 @@ src/
     retry.ts             — retry(fn, attempts, delayMs, label, shouldRetry?)
     http.ts              — httpsPost(), downloadFile() (used by ai/gemini.ts)
     groupFormat.ts       — formatTimestamp(), formatBufferForLLM(), extractForwardInfo()
+  danbooru/
+    api.ts               — Danbooru API client: fetchPosts(), downloadDanbooruImage(), fetchLatestPostId(), extToMimeType(), isNsfwRating(), buildDescriptionAndTags()
+    worker.ts            — startDanbooruWorker(api), initDanbooruCursorIfNeeded() — background chronological crawler
   scripts/
     reembedImages.ts      — one-time migration: re-embed ALL saved_images with the current image-embedding pipeline (run with the bot stopped). Uses GEMINI_API_KEY_FREE first (≤900/day, ~85/min), falls back to the paid key for the rest
     retryFailedIngest.ts  — reset failed ingest rows back to "pending" so the running worker re-processes them
+    retryFailedDanbooru.ts — re-process failed danbooru_posts (status='failed'): re-fetches each by ID (fetchPostById) and runs it through the same processPost. Needs storage chat configured; safe to run with the bot up. Optional arg = max rows per run
 ```
 
 ## Code conventions
@@ -138,6 +145,7 @@ Still avoid restating what the code obviously does — focus on the **why**, not
 | OpenRouter | Chat completions, fact extraction | `OPENROUTER_API_KEY` |
 | Gemini | Image analysis, embeddings | `GEMINI_API_KEY` |
 | Telegram | Bot API | `BOT_TOKEN` |
+| Danbooru | Image crawling (optional) | `DANBOORU_LOGIN`, `DANBOORU_API_KEY` |
 
 - Gemini image analysis model: `gemini-3.1-flash-lite` (in `gemini.ts`)
 - Gemini embedding model: `gemini-embedding-2` (natively multimodal — embeds text and images into one shared space), produces **3072-dim** vectors
@@ -231,8 +239,17 @@ Bot response is saved to buffer inside `askGroupChat()` as fire-and-forget (DB f
 1. **Requires `/setinline` at BotFather** — without it the bot receives no `inline_query` updates at all (no error, just silence). `inline_query` is in the default getUpdates `allowed_updates`, so `run(bot)` (no filter) gets it; if an explicit `allowed_updates` list is ever added, include `inline_query`.
 2. Normalize the query (trim + collapse whitespace + lowercase + slice 255) — used as both the embedding input and the cache key, so casing/spacing variants share a vector.
 3. Query `< INLINE_MIN_QUERY_LEN` → **browse**: `findRandomImages(nsfw, INLINE_BROWSE_COUNT)` (no embedding call). Otherwise → resolve embedding: `getCachedEmbedding()` → on miss `generateTextEmbedding()` + `cacheEmbedding()` (fire-and-forget); then `findSimilarImages(embedding, nsfw, INLINE_POOL_SIZE)`, **shuffle**, take `INLINE_SHOWN_COUNT` (same phrase → fresh subset each time, stays in the relevant pool — no relevance threshold yet).
-4. Results are `InlineQueryResultCachedPhoto` by stored `fileId` (cached-photo is the only correct type — `photo_url` would need a public URL; the Telegram file URL expires and leaks the token).
+4. Results are `InlineQueryResultCachedPhoto` by stored `fileId` (cached-photo is the only correct type — `photo_url` would need a public URL; the Telegram file URL expires and leaks the token). Для картинок с Danbooru вешается inline-кнопка «🔗 Danbooru» со ссылкой на пост: `getDanbooruIdsByImageIds(savedImageIds)` (один запрос по индексу `danbooru_posts_saved_image_idx`) даёт `saved_image_id → danbooru_id`, URL строит `danbooruPostUrl(id)`. Отдельной колонки нет — URL выводится из уже хранимого `danbooru_id`. Сбой этого шага не критичен: картинки отдаются без кнопок.
 5. `answerInlineQuery(results, { cache_time: INLINE_CACHE_TIME, is_personal: true })` — **`is_personal: true` is mandatory** (NSFW depends on per-user settings; without it Telegram would serve one user's results to another). Low `cache_time` so the shuffle is visible on re-query.
 6. NSFW from `getUserNsfwEnabled(userId)` — returns `false` for users who never DM'd the bot (safe SFW default). On any error: log + still `answerInlineQuery([])` (empty beats a hung spinner).
 
 `search_embeddings` table — global cache (vector of a phrase is user-independent; NSFW filtering happens at search time). Looked up by exact `query_text` (btree unique), so **no vector index needed**.
+
+**Danbooru import** (`danbooru/worker.ts`, started in `index.ts` via `startDanbooruWorker(api)`) — хронологически тянет новые посты и добавляет их в `saved_images` (после чего они доступны в inline-поиске). Опциональный: если `DANBOORU_LOGIN`/`DANBOORU_API_KEY` не заданы, воркер не запускается.
+- Требует одноразовой настройки: `/setdanboorustorage [start_id]` в целевом чате/группе/супергруппе (в форум-группе — **в нужной теме**: команда запоминает `message_thread_id`, и `sendPhoto` постит именно туда, а не в General; `storageThreadId=0` = General/без тем). Бот будет загружать туда картинки (`sendPhoto`) чтобы получить Telegram `file_id`. Без этого воркер ждёт каждый тик. Поведение курсора: явный `start_id` → стартуем с него; **повторный вызов без аргумента, когда стейт уже есть → продолжаем с текущего курсора** (меняется только `storageChatId`, бэклог не теряется); первый запуск без аргумента → курсор = самый свежий пост (история не тянется).
+- Порядок обработки поста: **download → embed → Telegram upload → saveImage**. Embed идёт до upload: зря не тратим Telegram flood-бюджет на картинки, которые Gemini не может проэмбеддить. `generateImageEmbeddingFromBuffer` принимает буфер напрямую — одна загрузка на оба шага. Транзиентные шаги (download/embed/save) обёрнуты в `retry()`; flood-лимиты `sendPhoto` (429) гасит транспортный `autoRetry()` в `bot.ts`.
+- Рейтинги Danbooru: `g`/`s` → `isNsfw=false`, `q`/`e` → `isNsfw=true`. GIF/WebM/MP4 пропускаются (нельзя сохранить как Telegram photo → нет cached-photo file_id для inline).
+- Загрузка в storage-чат (`sendPhoto`): к сообщению цепляется кнопка «🔗 Danbooru» (`reply_markup` со ссылкой `danbooruPostUrl(post.id)`), а для NSFW (`q`/`e`) ставится `has_spoiler: true` — картинка приходит заблюренной с раскрытием по тапу. Спойлер тут возможен, потому что бот сам отправляет медиа (в inline-выдаче `has_spoiler` недоступен — у inline-результатов нет такого поля). На извлекаемый `file_id` ни кнопка, ни спойлер не влияют.
+- Теги (`buildDescriptionAndTags`): в текст эмбеддинга и в `saved_images.content_tags` уходят НОРМАЛИЗОВАННЫЕ теги (`_`→пробел — booru-теги в snake_case плохо стыкуются с естественными поисковыми фразами). Персонаж, франшиза (copyright) и автор (artist) — основные якоря поиска: они и в `description` (с метками `Characters:`/`From:`/`Art by:`), и первыми в `contentTags`. Сырая underscore-форма по категориям остаётся в `danbooru_posts.{general,character,copyright,artist}_tags` для аудита.
+- `danbooru_posts` — аудит + маппинг `danbooru_id → saved_image_id`. Статусы: `pending → done/skipped/failed`. Курсор сдвигается в ЛЮБОМ исходе (включая fail) — битый пост не блокирует поток. **Идемпотентность**: `tick()` пропускает посты, уже бывшие `done`/`skipped` (`getDanbooruPostStatus`), а сохранение картинки и пометка `done` идут одной транзакцией (`saveImageAndMarkDone`) — поэтому ни рестарт, ни сброс курсора назад не плодят дубли в `saved_images` (там нет уникальности по danbooru-посту). Упавшие посты остаются позади курсора; переобработать их можно `scripts/retryFailedDanbooru.ts` (перезапрашивает по ID через `fetchPostById`). `DANBOORU_SENDER_ID=0` — sentinel senderUserId для Danbooru-импорта (у реальных Telegram-пользователей ID > 0).
+- API: `GET /posts.json?page=a{last_id}&limit=N` — cursor-based пагинация, возвращает окно постов с id > last_id, но **в порядке УБЫВАНИЯ id** (не возрастания!). `worker.tick` сортирует батч по возрастанию перед обработкой — иначе `advanceDanbooruCursor` по каждому посту увёл бы курсор к минимуму батча (+1/тик) и каждый тик заново тянул бы предыдущее окно. Basic Auth (`login:api_key`). CDN-картинки публичны (auth не нужна). Лимит: 100 постов/запрос.

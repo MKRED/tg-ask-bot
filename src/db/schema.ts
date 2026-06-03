@@ -172,6 +172,55 @@ export const groupIngestImages = pgTable("group_ingest_images", {
   index("ingest_queue_idx").on(table.analyzedBy, table.route, table.nextAttemptAt),
 ]);
 
+// Конфиг воркера Danbooru: всегда одна строка (id=1).
+// storageChatId — чат/группа/супергруппа, куда бот загружает картинки (получает Telegram file_id).
+// storageThreadId — тема форум-группы (message_thread_id); 0 = General/группа без тем.
+// Устанавливается командой /setdanboorustorage.
+export const danbooruIngestState = pgTable("danbooru_ingest_state", {
+  id: integer("id").primaryKey(), // всегда 1
+  lastPostId: bigint("last_post_id", { mode: "number" }).notNull().default(0),
+  storageChatId: bigint("storage_chat_id", { mode: "number" }),
+  storageThreadId: bigint("storage_thread_id", { mode: "number" }).notNull().default(0),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Маппинг Danbooru-постов на saved_images + метаданные с имиджборда.
+// Служит дедупликацией и аудитом — каждый обработанный (или пропущенный) пост фиксируется здесь.
+export const danbooruPosts = pgTable("danbooru_posts", {
+  id: serial("id").primaryKey(),
+  // ID поста на Danbooru — уникальный ключ дедупликации
+  danbooruId: bigint("danbooru_id", { mode: "number" }).notNull().unique(),
+  // null пока картинка не сохранена в saved_images (или если сохранение не удалось)
+  savedImageId: integer("saved_image_id"),
+  // Рейтинг Danbooru: g (general), s (sensitive), q (questionable), e (explicit)
+  rating: varchar("rating", { length: 1 }).notNull(),
+  fileExt: varchar("file_ext", { length: 10 }).notNull(),
+  fileSize: integer("file_size"),
+  md5: varchar("md5", { length: 32 }),
+  sourceUrl: text("source_url"),
+  // Теги разбиты по категориям Danbooru — хранятся как массивы, аналогично content_tags в saved_images.
+  // Исходные данные — пробел-разделённые строки (tag_string_general и т.д.), сплитятся при вставке.
+  generalTags: text("general_tags").array().notNull().default(sql`'{}'::text[]`),
+  characterTags: text("character_tags").array().notNull().default(sql`'{}'::text[]`),
+  copyrightTags: text("copyright_tags").array().notNull().default(sql`'{}'::text[]`),
+  artistTags: text("artist_tags").array().notNull().default(sql`'{}'::text[]`),
+  score: integer("score").notNull().default(0),
+  // Статус обработки: pending | done | skipped | failed
+  status: text("status").notNull().default("pending"),
+  lastError: text("last_error"),
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  // Когда пост был опубликован на Danbooru
+  danbooruCreatedAt: timestamp("danbooru_created_at"),
+}, (table) => [
+  // Под inline-выдачу: по saved_image_id достаём danbooru_id, чтобы прикрепить ссылку на пост.
+  index("danbooru_posts_saved_image_idx").on(table.savedImageId),
+]);
+
+export type DanbooruIngestState = typeof danbooruIngestState.$inferSelect;
+export type DanbooruPost = typeof danbooruPosts.$inferSelect;
+export type NewDanbooruPost = typeof danbooruPosts.$inferInsert;
+
 export type GroupChat = typeof groupChats.$inferSelect;
 export type NewGroupChat = typeof groupChats.$inferInsert;
 export type GroupEnabledThread = typeof groupEnabledThreads.$inferSelect;

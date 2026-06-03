@@ -81,6 +81,28 @@ export async function generateImageEmbedding(fileUrl: string, analysisText: stri
   return values;
 }
 
+// Вариант generateImageEmbedding, принимающий уже скачанный буфер вместо URL.
+// Используется Danbooru-воркером: он уже держит буфер для загрузки в Telegram,
+// поэтому повторно скачивать тот же файл не нужно.
+export async function generateImageEmbeddingFromBuffer(
+  buffer: Buffer,
+  mimeType: string,
+  analysisText: string,
+  apiKey: string = config.geminiApiKey,
+): Promise<number[]> {
+  const agent = config.proxyUrl ? new HttpsProxyAgent(config.proxyUrl) : undefined;
+  const parts: object[] = [{ inline_data: { mime_type: mimeType, data: buffer.toString("base64") } }];
+  if (analysisText.trim()) parts.push({ text: analysisText });
+  const body = { model: `models/${EMBEDDING_MODEL}`, content: { parts } };
+  const t0 = Date.now();
+  const data = await httpsPost(embeddingUrl(apiKey), body, agent);
+  const values: number[] | undefined = data?.embedding?.values;
+  if (!values) throw new Error(`Gemini image embedding error: ${JSON.stringify(data)}`);
+  if (values.length !== EMBEDDING_DIMS) throw new Error(`Gemini image embedding: unexpected dims ${values.length}, expected ${EMBEDDING_DIMS}`);
+  logger.info({ model: EMBEDDING_MODEL, durationMs: Date.now() - t0, dims: values.length }, "Gemini image embedding generated (from buffer)");
+  return values;
+}
+
 export async function analyzeImage(fileUrl: string): Promise<ImageAnalysis> {
   const agent = config.proxyUrl ? new HttpsProxyAgent(config.proxyUrl) : undefined;
   const buffer = await downloadFile(fileUrl, agent);

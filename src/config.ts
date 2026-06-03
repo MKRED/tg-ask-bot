@@ -27,4 +27,7 @@ export const config = {
   // Уровень логирования. По умолчанию info, чтобы в проде не раздувать логи debug-записями
   // (appendToBuffer/pruneBuffer пишут debug на каждое сообщение). На время тестирования — LOG_LEVEL=debug.
   logLevel: process.env.LOG_LEVEL ?? "info",
+  // Danbooru-импорт (опциональный — воркер не запускается, если не заданы)
+  danbooruLogin: process.env.DANBOORU_LOGIN,
+  danbooruApiKey: process.env.DANBOORU_API_KEY,
 };

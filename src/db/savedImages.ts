@@ -11,8 +11,11 @@ export async function countUserImages(userId: number): Promise<number> {
   return row?.count ?? 0;
 }
 
-export async function saveImage(data: NewSavedImage): Promise<void> {
-  await db.insert(savedImages).values(data);
+// Возвращает ID новой строки — нужен Danbooru-воркеру для маппинга danbooru_posts.saved_image_id.
+// Существующие вызывающие места игнорируют возвращаемое значение (void-семантика сохранена).
+export async function saveImage(data: NewSavedImage): Promise<number> {
+  const [row] = await db.insert(savedImages).values(data).returning({ id: savedImages.id });
+  return row.id;
 }
 
 export async function findSimilarImages(embedding: number[], nsfwEnabled: boolean, limit = 1): Promise<SavedImage[]> {

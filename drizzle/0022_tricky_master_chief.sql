@@ -1,0 +1,1 @@
+CREATE INDEX "danbooru_posts_saved_image_idx" ON "danbooru_posts" USING btree ("saved_image_id");

@@ -3,6 +3,8 @@ import type { InlineQueryResultCachedPhoto } from "grammy/types";
 import { generateTextEmbedding } from "../ai/gemini.js";
 import { getCachedEmbedding, cacheEmbedding } from "../db/searchEmbeddings.js";
 import { findSimilarImages, findRandomImages } from "../db/savedImages.js";
+import { getDanbooruIdsByImageIds } from "../db/danbooruPosts.js";
+import { danbooruPostUrl } from "../danbooru/api.js";
 import { getUserNsfwEnabled } from "../db/users.js";
 import {
   INLINE_MIN_QUERY_LEN,
@@ -31,12 +33,21 @@ function shuffle<T>(arr: T[]): T[] {
   return arr;
 }
 
-function toResults(images: SavedImage[]): InlineQueryResultCachedPhoto[] {
-  return images.map((img) => ({
-    type: "photo",
-    id: String(img.id),
-    photo_file_id: img.fileId,
-  }));
+// danbooruIds: saved_image_id → danbooru_id. Для картинок с Danbooru вешаем inline-кнопку
+// со ссылкой на пост; у остальных (загруженных пользователями) кнопки нет.
+function toResults(images: SavedImage[], danbooruIds: Map<number, number>): InlineQueryResultCachedPhoto[] {
+  return images.map((img) => {
+    const result: InlineQueryResultCachedPhoto = {
+      type: "photo",
+      id: String(img.id),
+      photo_file_id: img.fileId,
+    };
+    const danbooruId = danbooruIds.get(img.id);
+    if (danbooruId !== undefined) {
+      result.reply_markup = { inline_keyboard: [[{ text: "🔗 Danbooru", url: danbooruPostUrl(danbooruId) }]] };
+    }
+    return result;
+  });
 }
 
 // Достаём вектор запроса: сначала кэш, при промахе — Gemini + запись в кэш (fire-and-forget,
@@ -76,7 +87,16 @@ export function registerInlineQueryHandler(bot: Bot): void {
         images = shuffle(pool).slice(0, INLINE_SHOWN_COUNT);
       }
 
-      const results = toResults(images);
+      // Ссылки на посты Danbooru — не критичны для выдачи: при сбое просто отдаём картинки
+      // без кнопок, а не роняем весь ответ.
+      let danbooruIds = new Map<number, number>();
+      try {
+        danbooruIds = await getDanbooruIdsByImageIds(images.map((i) => i.id));
+      } catch (err) {
+        logger.warn({ userId, err }, "Failed to resolve Danbooru post links for inline results");
+      }
+
+      const results = toResults(images, danbooruIds);
       // is_personal: true — обязательно. NSFW зависит от настроек пользователя, поэтому
       // Telegram не должен кэшировать результаты одного юзера для другого.
       await ctx.answerInlineQuery(results, { cache_time: INLINE_CACHE_TIME, is_personal: true });
