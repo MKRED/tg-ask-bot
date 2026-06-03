@@ -38,7 +38,8 @@ src/
     messages.ts          — save/get/clear chat history (DM)
     users.ts             — upsertUser(), getUser(), getUserNsfwEnabled(), toggleNsfwEnabled(), updateUserProfile()
     facts.ts             — user facts CRUD
-    savedImages.ts       — saveImage(), findSimilarImages(), findImagesByTags(), countUserImages() (pgvector cosine)
+    savedImages.ts       — saveImage(), findSimilarImages(), findRandomImages(), findImagesByTags(), countUserImages() (pgvector cosine)
+    searchEmbeddings.ts  — inline-query embedding cache: getCachedEmbedding(), cacheEmbedding() (normalized phrase → vector)
     inlineMenus.ts       — inline keyboard menu state
     groupChats.ts        — upsertGroupChat(), getGroupChat(), getGroupNsfwEnabled()
     groupEnabledThreads.ts — enableThread(mode), disableThread(), getThreadMode(), isThreadEnabled() (mode: "chat" | "ingest")
@@ -47,6 +48,7 @@ src/
   handlers/
     commands.ts          — /start, /help, /clear, /facts, /account, /botstart, /botingest, /botstop
     myChatMember.ts      — bot join/leave group events → upsertGroupChat()
+    inlineQuery.ts       — registerInlineQueryHandler() — inline image search (any chat): text → embedding (cached) → findSimilarImages → shuffled cached-photo results; empty query → findRandomImages (browse)
     messages/
       index.ts           — registerMessageHandlers()
       text.ts            — DM text handler (private chats only)
@@ -75,6 +77,7 @@ src/
     db.constants.ts      — MAX_HISTORY_MESSAGES, MAX_STORED_MESSAGES, MAX_FACTS, GROUP_BUFFER_SIZE, GROUP_DECISION_MSGS, GROUP_FULL_CONTEXT_SIZE
     ui.constants.ts      — MAX_MSG_LENGTH, FACTS_PER_PAGE, CLEANUP_INTERVAL_MS, GROUP_MSG_TIMEZONE
     ingest.constants.ts  — INGEST_TICK_MS, GEMINI_INGEST_CONCURRENCY, OLLAMA_INGEST_CONCURRENCY, OLLAMA_MAX_ATTEMPTS, OLLAMA_BACKOFF_*, OLLAMA_HEALTH_TIMEOUT_MS
+    inline.constants.ts  — INLINE_MIN_QUERY_LEN, INLINE_POOL_SIZE, INLINE_SHOWN_COUNT, INLINE_BROWSE_COUNT, INLINE_CACHE_TIME
     index.ts             — barrel export
   strings/
     replies.ts           — FACT_SAVED_REPLIES, BUSY_REPLIES, randomBusyReply(), randomFactSavedReply()
@@ -223,3 +226,13 @@ Bot response is saved to buffer inside `askGroupChat()` as fire-and-forget (DB f
 **Ingest restart recovery** — no special order needed anymore: `startIngestWorker(api)` is started, then `checkStaleDigests(api)`. The worker continuously drains `pending` rows (including any whose analysis was interrupted by the kill), calling `scheduleDigest` as it finalizes them. `checkStaleDigests` is safe to run anytime — it only looks at terminal, un-reported rows.
 
 **Reply-to-bot bypass** — if `ctx.message.reply_to_message?.from?.id === ctx.me.id`, skip decision LLM and respond immediately. Log with `logger.info` for visibility.
+
+**Inline image search** (`inlineQuery.ts`, registered in `index.ts`) — `@bot <query>` in any chat searches the saved-images DB:
+1. **Requires `/setinline` at BotFather** — without it the bot receives no `inline_query` updates at all (no error, just silence). `inline_query` is in the default getUpdates `allowed_updates`, so `run(bot)` (no filter) gets it; if an explicit `allowed_updates` list is ever added, include `inline_query`.
+2. Normalize the query (trim + collapse whitespace + lowercase + slice 255) — used as both the embedding input and the cache key, so casing/spacing variants share a vector.
+3. Query `< INLINE_MIN_QUERY_LEN` → **browse**: `findRandomImages(nsfw, INLINE_BROWSE_COUNT)` (no embedding call). Otherwise → resolve embedding: `getCachedEmbedding()` → on miss `generateTextEmbedding()` + `cacheEmbedding()` (fire-and-forget); then `findSimilarImages(embedding, nsfw, INLINE_POOL_SIZE)`, **shuffle**, take `INLINE_SHOWN_COUNT` (same phrase → fresh subset each time, stays in the relevant pool — no relevance threshold yet).
+4. Results are `InlineQueryResultCachedPhoto` by stored `fileId` (cached-photo is the only correct type — `photo_url` would need a public URL; the Telegram file URL expires and leaks the token).
+5. `answerInlineQuery(results, { cache_time: INLINE_CACHE_TIME, is_personal: true })` — **`is_personal: true` is mandatory** (NSFW depends on per-user settings; without it Telegram would serve one user's results to another). Low `cache_time` so the shuffle is visible on re-query.
+6. NSFW from `getUserNsfwEnabled(userId)` — returns `false` for users who never DM'd the bot (safe SFW default). On any error: log + still `answerInlineQuery([])` (empty beats a hung spinner).
+
+`search_embeddings` table — global cache (vector of a phrase is user-independent; NSFW filtering happens at search time). Looked up by exact `query_text` (btree unique), so **no vector index needed**.

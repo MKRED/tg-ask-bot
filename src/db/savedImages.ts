@@ -28,6 +28,20 @@ export async function findSimilarImages(embedding: number[], nsfwEnabled: boolea
     .limit(limit);
 }
 
+// Случайная выборка картинок — для browse-режима inline (пустой запрос).
+// Без эмбеддинга: дешёвый ORDER BY random(). NSFW-фильтр как в findSimilarImages.
+export async function findRandomImages(nsfwEnabled: boolean, limit = 25): Promise<SavedImage[]> {
+  const where = nsfwEnabled
+    ? sql`embedding IS NOT NULL`
+    : and(sql`embedding IS NOT NULL`, eq(savedImages.isNsfw, false));
+  return db
+    .select()
+    .from(savedImages)
+    .where(where)
+    .orderBy(sql`random()`)
+    .limit(limit);
+}
+
 export async function findImagesByTags(tags: string[], nsfwEnabled: boolean, limit = 5): Promise<SavedImage[]> {
   if (tags.length === 0) return [];
   const arr1 = sql.join(tags.map((t) => sql`${t}`), sql`, `);

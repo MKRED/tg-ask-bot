@@ -81,6 +81,22 @@ export const savedImages = pgTable("saved_images", {
 export type SavedImage = typeof savedImages.$inferSelect;
 export type NewSavedImage = typeof savedImages.$inferInsert;
 
+// Кэш эмбеддингов поисковых запросов inline-режима: нормализованная фраза → вектор.
+// Глобальный (вектор фразы не зависит от пользователя; NSFW-фильтр применяется
+// позже, на поиске). Ищем по точному queryText — нужен лишь btree unique-индекс,
+// векторный индекс не требуется.
+export const searchEmbeddings = pgTable("search_embeddings", {
+  id: serial("id").primaryKey(),
+  queryText: varchar("query_text", { length: 255 }).notNull().unique(),
+  embedding: vector("embedding", { dimensions: 3072 }).notNull(),
+  // Telegram-id пользователя, чей запрос первым закэшировал эту фразу (кэш глобальный).
+  createdBy: bigint("created_by", { mode: "number" }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type SearchEmbedding = typeof searchEmbeddings.$inferSelect;
+export type NewSearchEmbedding = typeof searchEmbeddings.$inferInsert;
+
 // Группы, в которых состоит бот
 export const groupChats = pgTable("group_chats", {
   id: serial("id").primaryKey(),

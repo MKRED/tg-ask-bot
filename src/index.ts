@@ -4,6 +4,7 @@ import { registerCommands } from "./handlers/commands.js";
 import { registerMessageHandlers } from "./handlers/messages/index.js";
 import { registerForgetCallbacks, startMenuCleanupScheduler } from "./handlers/forgetMenu/index.js";
 import { registerMyChatMemberHandler } from "./handlers/myChatMember.js";
+import { registerInlineQueryHandler } from "./handlers/inlineQuery.js";
 import { checkStaleDigests } from "./handlers/messages/ingestDigest.js";
 import { startIngestWorker } from "./handlers/messages/ingestWorker.js";
 import logger from "./logger.js";
@@ -12,6 +13,7 @@ registerMyChatMemberHandler(bot);
 registerCommands(bot);
 registerForgetCallbacks(bot);
 registerMessageHandlers(bot);
+registerInlineQueryHandler(bot);
 
 bot.catch((err) => {
   logger.error({ err }, "Bot error");
