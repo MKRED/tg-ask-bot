@@ -1,4 +1,4 @@
-import { generateEmbedding } from "../../ai/gemini.js";
+import { generateTextEmbedding } from "../../ai/gemini.js";
 import { findSimilarImages } from "../../db/savedImages.js";
 import { getUserNsfwEnabled } from "../../db/users.js";
 import logger from "../../logger.js";
@@ -88,7 +88,7 @@ export async function sendResponseWithImage(
 
   let images: Awaited<ReturnType<typeof findSimilarImages>> = [];
   try {
-    const embedding = await generateEmbedding(queryText);
+    const embedding = await generateTextEmbedding(queryText);
     images = await findSimilarImages(embedding, nsfwEnabled);
   } catch (err) {
     logger.warn({ chatId, err }, "Image retrieval failed, sending text only");

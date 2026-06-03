@@ -1,5 +1,5 @@
 import type { Bot } from "grammy";
-import { analyzeImage, generateEmbedding, GeminiBlockedError } from "../../ai/gemini.js";
+import { analyzeImage, generateImageEmbedding, GeminiBlockedError } from "../../ai/gemini.js";
 import { analyzeImageOllama } from "../../ai/ollama.js";
 import { askOpenRouter } from "../../ai/openrouter.js";
 import { extractFacts } from "../../ai/extractFacts.js";
@@ -49,20 +49,21 @@ export function registerPhotoHandler(bot: Bot): void {
           ? `${caption}\n\n[Photo: ${imageAnalysis.description}]`
           : `[User sent a photo without caption]\n\n[Photo: ${imageAnalysis.description}]`;
 
-        const embeddingText = `${imageAnalysis.description} ${[...imageAnalysis.moodTags, ...imageAnalysis.contentTags].join(" ")}`;
+        const analysisText = `${imageAnalysis.description} ${[...imageAnalysis.moodTags, ...imageAnalysis.contentTags].join(" ")}`;
         // Fire-and-forget: генерация эмбеддинга и сохранение в БД выполняются в фоне после отправки ответа
         (async () => {
           let embedding: number[];
           try {
-            embedding = await generateEmbedding(embeddingText);
+            // Эмбеддим картинку + текст анализа (см. generateImageEmbedding).
+            embedding = await generateImageEmbedding(fileUrl, analysisText);
           } catch (err) {
-            logger.warn({ chatId, err }, "Gemini embedding failed, image will not be saved");
+            logger.warn({ chatId, err }, "Image embedding failed, image will not be saved");
             return;
           }
           saveImage({ fileId: photo.file_id, senderUserId: ctx.from.id, description: imageAnalysis.description, caption, moodTags: imageAnalysis.moodTags, contentTags: imageAnalysis.contentTags, isNsfw: imageAnalysis.isNsfw, embedding })
             .then(() => logger.info({ chatId, moodTags: imageAnalysis.moodTags, contentTags: imageAnalysis.contentTags, isNsfw: imageAnalysis.isNsfw }, "Image saved to DB with embedding"))
             .catch((err) => logger.warn({ chatId, err }, "Failed to save image to DB"));
-        })();
+        })().catch((err) => logger.warn({ chatId, err }, "Image save background task crashed"));
       } catch (geminiErr) {
         const blocked = geminiErr instanceof GeminiBlockedError;
         if (blocked) {
@@ -79,20 +80,20 @@ export function registerPhotoHandler(bot: Bot): void {
             ? `${caption}\n\n[Photo: ${imageAnalysis.description}]`
             : `[User sent a photo without caption]\n\n[Photo: ${imageAnalysis.description}]`;
 
-          const embeddingText = `${imageAnalysis.description} ${[...imageAnalysis.moodTags, ...imageAnalysis.contentTags].join(" ")}`;
+          const analysisText = `${imageAnalysis.description} ${[...imageAnalysis.moodTags, ...imageAnalysis.contentTags].join(" ")}`;
           // Fire-and-forget: генерация эмбеддинга и сохранение в БД выполняются в фоне после отправки ответа
           (async () => {
             let embedding: number[];
             try {
-              embedding = await generateEmbedding(embeddingText);
+              embedding = await generateImageEmbedding(fileUrl, analysisText);
             } catch (err) {
-              logger.warn({ chatId, err }, "Gemini embedding failed for Ollama image (likely content policy), image will not be saved");
+              logger.warn({ chatId, err }, "Image embedding failed for Ollama image, image will not be saved");
               return;
             }
             saveImage({ fileId: photo.file_id, senderUserId: ctx.from.id, description: imageAnalysis.description, caption, moodTags: imageAnalysis.moodTags, contentTags: imageAnalysis.contentTags, isNsfw: imageAnalysis.isNsfw, embedding })
               .then(() => logger.info({ chatId, moodTags: imageAnalysis.moodTags, contentTags: imageAnalysis.contentTags, isNsfw: imageAnalysis.isNsfw }, "Image saved to DB with Ollama embedding"))
               .catch((err) => logger.warn({ chatId, err }, "Failed to save Ollama image to DB"));
-          })();
+          })().catch((err) => logger.warn({ chatId, err }, "Ollama image save background task crashed"));
         } catch (ollamaErr) {
           logger.error({ chatId, err: ollamaErr }, "Ollama fallback failed");
           userMessage = "[User sent a photo, but it could not be analyzed — neither Gemini nor the local model could process it. React in your own style, don't just say sorry.]";

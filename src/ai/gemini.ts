@@ -27,20 +27,57 @@ const BLOCKING_FINISH_REASONS = new Set([
 const GEMINI_MODEL = "gemini-3.1-flash-lite";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${config.geminiApiKey}`;
 
-const EMBEDDING_MODEL = "gemini-embedding-001";
-const EMBEDDING_URL = `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:embedContent?key=${config.geminiApiKey}`;
+// gemini-embedding-2 — нативно мультимодальная: эмбеддит и текст, и картинку в одно
+// общее векторное пространство, поэтому текстовый запрос можно сравнивать с эмбеддингом
+// картинки напрямую (см. generateImageEmbedding). По умолчанию отдаёт 3072 dims.
+const EMBEDDING_MODEL = "gemini-embedding-2";
+// URL строим из ключа: обычно это config.geminiApiKey, но скрипт миграции может
+// передать бесплатный ключ (см. generateImageEmbedding).
+function embeddingUrl(apiKey: string): string {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:embedContent?key=${apiKey}`;
+}
 
-export async function generateEmbedding(text: string): Promise<number[]> {
+// Размерность столбца saved_images.embedding. Совпадает с дефолтом модели; guard ниже
+// ловит молчаливое расхождение — иначе вектор чужой размерности уехал бы в БД незаметно.
+const EMBEDDING_DIMS = 3072;
+
+// Текстовый эмбеддинг — для стороны ЗАПРОСА (пользователь ищет картинку текстом).
+export async function generateTextEmbedding(text: string): Promise<number[]> {
   const agent = config.proxyUrl ? new HttpsProxyAgent(config.proxyUrl) : undefined;
   const body = {
     model: `models/${EMBEDDING_MODEL}`,
     content: { parts: [{ text }] },
   };
   const t0 = Date.now();
-  const data = await httpsPost(EMBEDDING_URL, body, agent);
+  const data = await httpsPost(embeddingUrl(config.geminiApiKey), body, agent);
   const values: number[] | undefined = data?.embedding?.values;
-  if (!values) throw new Error(`Gemini embedding error: ${JSON.stringify(data)}`);
-  logger.info({ model: EMBEDDING_MODEL, durationMs: Date.now() - t0, dims: values.length }, "Gemini embedding generated");
+  if (!values) throw new Error(`Gemini text embedding error: ${JSON.stringify(data)}`);
+  if (values.length !== EMBEDDING_DIMS) throw new Error(`Gemini text embedding: unexpected dims ${values.length}, expected ${EMBEDDING_DIMS}`);
+  logger.info({ model: EMBEDDING_MODEL, durationMs: Date.now() - t0, dims: values.length }, "Gemini text embedding generated");
+  return values;
+}
+
+// Эмбеддинг картинки — для стороны ХРАНЕНИЯ. В один вектор кладём и саму картинку
+// (визуал, сцена, композиция), и текст анализа от нейронки (описание + теги, включая
+// имена франшиз/персонажей, если их распознал грундинг). Так именованные сущности
+// получают текстовый якорь прямо в векторе, а не зависят только от визуальных знаний модели.
+// caption пользователя НЕ кладём: он может быть не про картинку (вопрос и т.п.) → шум.
+export async function generateImageEmbedding(fileUrl: string, analysisText: string, apiKey: string = config.geminiApiKey): Promise<number[]> {
+  const agent = config.proxyUrl ? new HttpsProxyAgent(config.proxyUrl) : undefined;
+  const buffer = await downloadFile(fileUrl, agent);
+  // Текстовый part добавляем только если есть что эмбеддить — пустой text API отклоняет.
+  const parts: object[] = [{ inline_data: { mime_type: "image/jpeg", data: buffer.toString("base64") } }];
+  if (analysisText.trim()) parts.push({ text: analysisText });
+  const body = {
+    model: `models/${EMBEDDING_MODEL}`,
+    content: { parts },
+  };
+  const t0 = Date.now();
+  const data = await httpsPost(embeddingUrl(apiKey), body, agent);
+  const values: number[] | undefined = data?.embedding?.values;
+  if (!values) throw new Error(`Gemini image embedding error: ${JSON.stringify(data)}`);
+  if (values.length !== EMBEDDING_DIMS) throw new Error(`Gemini image embedding: unexpected dims ${values.length}, expected ${EMBEDDING_DIMS}`);
+  logger.info({ model: EMBEDDING_MODEL, durationMs: Date.now() - t0, dims: values.length }, "Gemini image embedding generated");
   return values;
 }
 

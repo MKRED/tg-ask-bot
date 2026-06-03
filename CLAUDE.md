@@ -26,7 +26,7 @@ src/
   config.ts              — env vars (requireEnv for mandatory, process.env for optional)
   logger.ts              — pino logger (daily rolling, pino-pretty in TTY)
   ai/
-    gemini.ts            — Gemini API: analyzeImage(), generateEmbedding(), GeminiBlockedError
+    gemini.ts            — Gemini API: analyzeImage(), generateTextEmbedding(), generateImageEmbedding(), GeminiBlockedError
     openrouter.ts        — OpenRouter chat: askOpenRouter(), clearHistory(), addToHistory(), parseResponse()
     extractFacts.ts      — LLM fact extraction from conversation history
     ollama.ts            — Ollama fallback: analyzeImageOllama() (used when Gemini blocks an image)
@@ -83,7 +83,7 @@ src/
     http.ts              — httpsPost(), downloadFile() (used by ai/gemini.ts)
     groupFormat.ts       — formatTimestamp(), formatBufferForLLM(), extractForwardInfo()
   scripts/
-    backfillEmbeddings.ts — one-time script to fill missing embeddings
+    reembedImages.ts      — one-time migration: re-embed ALL saved_images with the current image-embedding pipeline (run with the bot stopped). Uses GEMINI_API_KEY_FREE first (≤900/day, ~85/min), falls back to the paid key for the rest
     retryFailedIngest.ts  — reset failed ingest rows back to "pending" so the running worker re-processes them
 ```
 
@@ -137,15 +137,16 @@ Still avoid restating what the code obviously does — focus on the **why**, not
 | Telegram | Bot API | `BOT_TOKEN` |
 
 - Gemini image analysis model: `gemini-3.1-flash-lite` (in `gemini.ts`)
-- Gemini embedding model: `gemini-embedding-001`, produces **3072-dim** vectors
+- Gemini embedding model: `gemini-embedding-2` (natively multimodal — embeds text and images into one shared space), produces **3072-dim** vectors
 - OpenRouter model: configured via `OPENROUTER_MODEL` env var (default: `deepseek/deepseek-v4-flash`)
 
 ## pgvector
 - DB must have the `vector` extension: `CREATE EXTENSION IF NOT EXISTS vector;`
 - Vector column type is a `customType` in `schema.ts` (drizzle has no native pgvector support)
 - Cosine similarity search: `ORDER BY embedding <=> ${vec}::vector`
-- Embedding text for storage: `description + " " + [...moodTags, ...contentTags].join(" ")`
-- Embedding text for query: tags joined with spaces
+- Storage-side embedding: `generateImageEmbedding(fileUrl, analysisText)` — embeds the **image itself + analysis text** (`description + " " + [...moodTags, ...contentTags].join(" ")`) into one multimodal vector. The image carries visual/compositional signal; the text anchors named entities (franchises/characters from grounding). The user's caption is **not** embedded (may be off-topic).
+- Query-side embedding: `generateTextEmbedding(queryText)` — the user's search text. Lives in the same multimodal space, so text→image search matches directly.
+- Both default to 3072 dims; `gemini.ts` guards against any other length (same-dim ≠ same-space — a foreign vector would otherwise enter the column silently).
 
 ## Keeping docs up to date
 

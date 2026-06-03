@@ -72,6 +72,7 @@ cp .env.example .env
 BOT_TOKEN=            # токен от @BotFather
 OPENROUTER_API_KEY=   # ключ на openrouter.ai
 GEMINI_API_KEY=       # ключ на aistudio.google.com
+GEMINI_API_KEY_FREE=  # опционально: бесплатный ключ, используется только скриптом reembedImages.ts
 DATABASE_URL=         # postgres://user:password@host:5432/dbname
 PROXY_URL=            # опционально: http://host:port
 OPENROUTER_MODEL=     # опционально, по умолчанию deepseek/deepseek-v4-flash
@@ -124,7 +125,7 @@ docker run --env-file .env tg-ask-bot
 
 - [grammY](https://grammy.dev/) — Telegram Bot framework
 - [OpenRouter](https://openrouter.ai/) — LLM API (текст, decision)
-- [Google Gemini](https://aistudio.google.com/) — Vision API (изображения, `gemini-3.1-flash-lite`) + Embedding API (`gemini-embedding-001`)
+- [Google Gemini](https://aistudio.google.com/) — Vision API (изображения, `gemini-3.1-flash-lite`) + Embedding API (`gemini-embedding-2`, мультимодальная: текст и картинки в одном векторном пространстве)
 - [Ollama](https://ollama.com/) — локальная Vision модель, fallback при блокировке Gemini
 - [Drizzle ORM](https://orm.drizzle.team/) + PostgreSQL + pgvector — хранение истории, фактов, изображений, групповых буферов и векторный поиск
 - [pino](https://getpino.io/) — логирование

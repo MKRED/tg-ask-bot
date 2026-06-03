@@ -12,6 +12,9 @@ export const config = {
   openrouterApiKey: requireEnv("OPENROUTER_API_KEY"),
   openrouterModel: process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-v4-flash",
   geminiApiKey: requireEnv("GEMINI_API_KEY"),
+  // Опциональный бесплатный ключ Gemini — сейчас используется только скриптом миграции
+  // reembedImages.ts (бесплатный тир сначала, платный — на остаток). В боевом потоке не задействован.
+  geminiApiKeyFree: process.env.GEMINI_API_KEY_FREE,
   databaseUrl: requireEnv("DATABASE_URL"),
   inlineMenuInactivityTimeoutMs: parseInt(
     process.env.INLINE_MENU_INACTIVITY_TIMEOUT_MS ?? String(30 * 60 * 1000)

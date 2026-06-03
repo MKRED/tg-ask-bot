@@ -1,5 +1,5 @@
 import type { Api } from "grammy";
-import { analyzeImage, generateEmbedding, GeminiBlockedError } from "../../ai/gemini.js";
+import { analyzeImage, generateImageEmbedding, GeminiBlockedError } from "../../ai/gemini.js";
 import { analyzeImageOllama } from "../../ai/ollama.js";
 import {
   claimQueued,
@@ -56,15 +56,16 @@ async function resolveFileUrl(api: Api, fileId: string): Promise<string> {
 }
 
 // Сохранение в saved_images — ради чего анализ и делается. Fire-and-forget: сбой не должен ломать конвейер.
-function saveAnalysisToImages(row: GroupIngestImage, analysis: ImageAnalysis, logCtx: Record<string, unknown>): void {
+function saveAnalysisToImages(row: GroupIngestImage, analysis: ImageAnalysis, fileUrl: string, logCtx: Record<string, unknown>): void {
   if (!row.fileId || !row.senderUserId) return;
   const fileId = row.fileId;
   const senderUserId = row.senderUserId;
   (async () => {
     let embedding: number[];
     try {
-      const embeddingText = `${analysis.description} ${[...analysis.moodTags, ...analysis.contentTags].join(" ")}`;
-      embedding = await generateEmbedding(embeddingText);
+      // Эмбеддим картинку + текст анализа (см. generateImageEmbedding).
+      const analysisText = `${analysis.description} ${[...analysis.moodTags, ...analysis.contentTags].join(" ")}`;
+      embedding = await generateImageEmbedding(fileUrl, analysisText);
     } catch (err) {
       logger.warn({ ...logCtx, err }, "Embedding failed, image not saved to saved_images");
       return;
@@ -113,7 +114,7 @@ async function processGemini(row: GroupIngestImage, api: Api): Promise<void> {
       isNsfw: analysis.isNsfw,
       processingMs: Date.now() - t0,
     });
-    saveAnalysisToImages(row, analysis, logCtx);
+    saveAnalysisToImages(row, analysis, fileUrl, logCtx);
     scheduleDigest(row.chatId, row.threadId, api);
     logger.info({ ...logCtx, durationMs: Date.now() - t0 }, "Ingest image analyzed by Gemini");
   } catch (err) {
@@ -164,7 +165,7 @@ async function processOllama(row: GroupIngestImage, api: Api): Promise<void> {
       isNsfw: analysis.isNsfw,
       processingMs: Date.now() - t0,
     });
-    saveAnalysisToImages(row, analysis, logCtx);
+    saveAnalysisToImages(row, analysis, fileUrl, logCtx);
     scheduleDigest(row.chatId, row.threadId, api);
     logger.info({ ...logCtx, durationMs: Date.now() - t0 }, "Ingest image analyzed by Ollama");
   } catch (err) {

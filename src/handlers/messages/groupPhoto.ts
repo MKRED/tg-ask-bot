@@ -1,5 +1,5 @@
 import type { Bot } from "grammy";
-import { generateEmbedding } from "../../ai/gemini.js";
+import { generateImageEmbedding } from "../../ai/gemini.js";
 import { askGroupChat } from "../../ai/groupChat.js";
 import { checkShouldRespond } from "../../ai/groupDecision.js";
 import { getGroupNsfwEnabled } from "../../db/groupChats.js";
@@ -80,8 +80,8 @@ export function registerGroupPhotoHandler(bot: Bot): void {
       (async () => {
         let embedding: number[];
         try {
-          const embeddingText = `${analysis.description} ${[...analysis.moodTags, ...analysis.contentTags].join(" ")}`;
-          embedding = await generateEmbedding(embeddingText);
+          const analysisText = `${analysis.description} ${[...analysis.moodTags, ...analysis.contentTags].join(" ")}`;
+          embedding = await generateImageEmbedding(fileUrl, analysisText);
         } catch (err) {
           logger.warn({ chatId, threadId, err }, "Embedding failed for group photo, image will not be saved");
           return;
@@ -98,7 +98,7 @@ export function registerGroupPhotoHandler(bot: Bot): void {
         })
           .then(() => logger.info({ chatId, threadId, moodTags: analysis.moodTags, isNsfw: analysis.isNsfw }, "Group photo saved to DB"))
           .catch((err) => logger.warn({ chatId, threadId, err }, "Failed to save group photo to DB"));
-      })();
+      })().catch((err) => logger.warn({ chatId, threadId, err }, "Group photo save background task crashed"));
     }
 
     // Встраиваем forward-инфо в контент если есть
