@@ -15,6 +15,9 @@ yarn dev           # start bot (run in background)
 Stop-Process -Name "node"  # stop bot
 yarn drizzle-kit generate  # generate migration from schema changes
 yarn drizzle-kit migrate   # apply migrations to DB
+yarn test          # run unit tests once (vitest run)
+yarn test:watch    # run tests in watch mode
+yarn build         # tsc typecheck/compile (excludes *.test.ts)
 ```
 
 ## Architecture
@@ -164,6 +167,15 @@ Still avoid restating what the code obviously does — focus on the **why**, not
 2. Run `yarn drizzle-kit generate` to create migration SQL in `drizzle/`
 3. For pgvector extensions: manually add `CREATE EXTENSION IF NOT EXISTS vector;` to the migration — drizzle-kit does not generate it
 4. Run `yarn drizzle-kit migrate` to apply
+
+### Testing — vitest
+Test runner is **vitest** (`yarn test` = `vitest run`, `yarn test:watch` = watch mode). Config: [vitest.config.ts](vitest.config.ts).
+- **Co-locate** tests next to the code as `*.test.ts` (same folder, e.g. `transform.ts` → `transform.test.ts`). The runner globs `src/**/*.test.ts`; `tsc` (`yarn build`) excludes them via `**/*.test.ts` in `tsconfig.json`, so tests never land in `dist/`.
+- **What to test:** pure functions — transformers, formatters, parsers, retry/decision logic — the stuff with no I/O. Examples already covered: `sources/danbooru/transform.ts`, `utils/groupFormat.ts`, `utils/retry.ts`. Workers, DAOs (`db/*`), and Telegram/LLM handlers are **not** unit-tested (they need a live DB / external services / mutable module state — out of scope until there's an integration setup).
+- **Imports still need `.js`** in test files too (native ESM). Vitest/Vite resolves the `.js` specifier to the `.ts` source automatically.
+- **Avoid pulling in `config`/`logger` transitively.** A unit under test that imports `../logger.js` will drag in `config.ts` (which `requireEnv`s `BOT_TOKEN` etc. and would throw without a `.env`) plus pino-roll worker threads. Mock it: `vi.mock("../logger.js", () => ({ default: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }))`. See [retry.test.ts](src/utils/retry.test.ts).
+- **Pool is `forks`** (not the default threads): on Windows the thread pool + Vite's cold dep-optimizer occasionally fails the first run with `Cannot read properties of undefined (reading 'config')`. Forks make cold runs deterministic — keep it.
+- **Adding new pure logic?** Add a `*.test.ts` beside it. It's cheap now that the harness exists.
 
 ## External APIs
 
