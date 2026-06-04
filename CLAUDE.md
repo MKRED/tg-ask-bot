@@ -38,7 +38,7 @@ src/
     messages.ts          — save/get/clear chat history (DM)
     users.ts             — upsertUser(), getUser(), getUserNsfwEnabled(), toggleNsfwEnabled(), updateUserProfile()
     facts.ts             — user facts CRUD
-    savedImages.ts       — saveImage() → returns inserted ID, findSimilarImages(), findRandomImages(), findImagesByTags(), countUserImages() (pgvector cosine)
+    savedImages.ts       — saveImage() → returns inserted ID, findSimilarImages(), findRandomImages(), countUserImages() (pgvector cosine)
     searchEmbeddings.ts  — inline-query embedding cache: getCachedEmbedding(), cacheEmbedding() (normalized phrase → vector)
     danbooruState.ts     — getDanbooruState(), setDanbooruStorageChat(), advanceDanbooruCursor() (singleton config row)
     danbooruPosts.ts     — insertDanbooruPost(), markDanbooruPostDone/Failed/Skipped() (audit + mapping to saved_images)
@@ -80,7 +80,7 @@ src/
     ui.constants.ts      — MAX_MSG_LENGTH, FACTS_PER_PAGE, CLEANUP_INTERVAL_MS, GROUP_MSG_TIMEZONE
     ingest.constants.ts  — INGEST_TICK_MS, GEMINI_INGEST_CONCURRENCY, OLLAMA_INGEST_CONCURRENCY, OLLAMA_MAX_ATTEMPTS, OLLAMA_BACKOFF_*, OLLAMA_HEALTH_TIMEOUT_MS
     inline.constants.ts  — INLINE_MIN_QUERY_LEN, INLINE_POOL_SIZE, INLINE_SHOWN_COUNT, INLINE_BROWSE_COUNT, INLINE_CACHE_TIME
-    danbooru.constants.ts — DANBOORU_TICK_MS, DANBOORU_BATCH_SIZE, DANBOORU_UPLOAD_DELAY_MS, DANBOORU_SENDER_ID, DANBOORU_ALLOWED_EXTS
+    danbooru.constants.ts — DANBOORU_TICK_MS, DANBOORU_BATCH_SIZE, DANBOORU_UPLOAD_DELAY_MS, DANBOORU_SENDER_ID, DANBOORU_ALLOWED_EXTS, DANBOORU_MIN_AGE_MS, DANBOORU_MIN_SCORE
     index.ts             — barrel export
   strings/
     replies.ts           — FACT_SAVED_REPLIES, BUSY_REPLIES, randomBusyReply(), randomFactSavedReply()
@@ -248,6 +248,10 @@ Bot response is saved to buffer inside `askGroupChat()` as fire-and-forget (DB f
 **Danbooru import** (`danbooru/worker.ts`, started in `index.ts` via `startDanbooruWorker(api)`) — хронологически тянет новые посты и добавляет их в `saved_images` (после чего они доступны в inline-поиске). Опциональный: если `DANBOORU_LOGIN`/`DANBOORU_API_KEY` не заданы, воркер не запускается.
 - Требует одноразовой настройки: `/setdanboorustorage [start_id]` в целевом чате/группе/супергруппе (в форум-группе — **в нужной теме**: команда запоминает `message_thread_id`, и `sendPhoto` постит именно туда, а не в General; `storageThreadId=0` = General/без тем). Бот будет загружать туда картинки (`sendPhoto`) чтобы получить Telegram `file_id`. Без этого воркер ждёт каждый тик. Поведение курсора: явный `start_id` → стартуем с него; **повторный вызов без аргумента, когда стейт уже есть → продолжаем с текущего курсора** (меняется только `storageChatId`, бэклог не теряется); первый запуск без аргумента → курсор = самый свежий пост (история не тянется).
 - Порядок обработки поста: **download → embed → Telegram upload → saveImage**. Embed идёт до upload: зря не тратим Telegram flood-бюджет на картинки, которые Gemini не может проэмбеддить. `generateImageEmbeddingFromBuffer` принимает буфер напрямую — одна загрузка на оба шага. Транзиентные шаги (download/embed/save) обёрнуты в `retry()`; flood-лимиты `sendPhoto` (429) гасит транспортный `autoRetry()` в `bot.ts`.
+- **Фильтр качества (возраст + score)**: грузим не всё подряд, а только «настоявшиеся» популярные посты. Два гейта в начале цикла `tick()` (батч отсортирован по возрастанию id = возрастанию свежести):
+  1. **Возраст** `< DANBOORU_MIN_AGE_MS` (48ч) → `break` + курсор НЕ двигаем. У свежего поста score недостоверен (0–1 сразу после публикации); ждём, пока «настоится». Раз id хронологичны — все последующие посты в батче тоже моложе, поэтому останавливаем весь батч; на следующем тике окно перезапросится. Курсор трейлит на ~48ч позади реального времени.
+  2. **Score** `< DANBOORU_MIN_SCORE` (5) → `markSkipped("low_score:N")` + сдвигаем курсор (без download/upload). Порог 5 ≈ медиана на 48ч — отсекает нижнюю «половину без отклика». Пороги выведены из эмпирического анализа распределения score по возрасту (медиана 2→5 за ~2 суток, дальше плато).
+  - Лог тика: `skippedLowScore` (отсеяно по оценке), `stoppedYoung` (упёрлись в молодые → ждём), `newLastPostId` = реальная позиция курсора (при раннем стопе ≠ хвост батча).
 - Рейтинги Danbooru: `g`/`s` → `isNsfw=false`, `q`/`e` → `isNsfw=true`. GIF/WebM/MP4 пропускаются (нельзя сохранить как Telegram photo → нет cached-photo file_id для inline).
 - Загрузка в storage-чат (`sendPhoto`): к сообщению цепляется кнопка «🔗 Danbooru» (`reply_markup` со ссылкой `danbooruPostUrl(post.id)`), а для NSFW (`q`/`e`) ставится `has_spoiler: true` — картинка приходит заблюренной с раскрытием по тапу. Спойлер тут возможен, потому что бот сам отправляет медиа (в inline-выдаче `has_spoiler` недоступен — у inline-результатов нет такого поля). На извлекаемый `file_id` ни кнопка, ни спойлер не влияют.
 - Теги (`buildDescriptionAndTags`): в текст эмбеддинга и в `saved_images.content_tags` уходят НОРМАЛИЗОВАННЫЕ теги (`_`→пробел — booru-теги в snake_case плохо стыкуются с естественными поисковыми фразами). Персонаж, франшиза (copyright) и автор (artist) — основные якоря поиска: они и в `description` (с метками `Characters:`/`From:`/`Art by:`), и первыми в `contentTags`. Сырая underscore-форма по категориям остаётся в `danbooru_posts.{general,character,copyright,artist}_tags` для аудита.

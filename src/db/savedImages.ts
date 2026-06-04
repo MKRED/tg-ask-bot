@@ -44,19 +44,3 @@ export async function findRandomImages(nsfwEnabled: boolean, limit = 25): Promis
     .orderBy(sql`random()`)
     .limit(limit);
 }
-
-export async function findImagesByTags(tags: string[], nsfwEnabled: boolean, limit = 5): Promise<SavedImage[]> {
-  if (tags.length === 0) return [];
-  const arr1 = sql.join(tags.map((t) => sql`${t}`), sql`, `);
-  const arr2 = sql.join(tags.map((t) => sql`${t}`), sql`, `);
-  const tagsWhere = sql`mood_tags && ARRAY[${arr1}] OR content_tags && ARRAY[${arr2}]`;
-  const where = nsfwEnabled
-    ? tagsWhere
-    : and(tagsWhere, eq(savedImages.isNsfw, false));
-  return db
-    .select()
-    .from(savedImages)
-    .where(where)
-    .orderBy(sql`random()`)
-    .limit(limit);
-}

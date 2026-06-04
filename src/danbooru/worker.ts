@@ -31,6 +31,8 @@ import {
   DANBOORU_UPLOAD_DELAY_MS,
   DANBOORU_SENDER_ID,
   DANBOORU_ALLOWED_EXTS,
+  DANBOORU_MIN_AGE_MS,
+  DANBOORU_MIN_SCORE,
 } from "../constants/index.js";
 import logger from "../logger.js";
 
@@ -176,9 +178,25 @@ async function tick(api: Api): Promise<void> {
   let imported = 0;
   let failed = 0;
   let skipped = 0;
+  let skippedLowScore = 0;
   let alreadyDone = 0;
+  let stoppedYoung = false;
+  let advancedTo = lastPostId; // куда реально доехал курсор (для лога; при раннем стопе ≠ хвост батча)
 
   for (const post of posts) {
+    // Возрастной фильтр: у свежего поста score ещё не сформирован, поэтому ждём, пока
+    // он «настоится» (DANBOORU_MIN_AGE_MS). Посты отсортированы по возрастанию id, а id
+    // Danbooru хронологичны → все последующие посты тоже моложе. Останавливаем батч и НЕ
+    // двигаем курсор за этот пост: на следующем тике окно перезапросится, и пост обработается,
+    // когда повзрослеет. Так курсор трейлит на ~MIN_AGE позади реального времени.
+    const ageMs = Date.now() - new Date(post.created_at).getTime();
+    if (ageMs < DANBOORU_MIN_AGE_MS) {
+      stoppedYoung = true;
+      break;
+    }
+    // Все ветки ниже двигают курсор за этот пост — фиксируем для итогового лога
+    advancedTo = post.id;
+
     // Идемпотентность: если пост уже обработан (done/skipped) — НЕ гоним его через
     // processPost повторно (иначе saveImage создаст дубликат в saved_images). Такое
     // бывает при рестарте между save и сдвигом курсора или при сбросе курсора назад.
@@ -216,6 +234,15 @@ async function tick(api: Api): Promise<void> {
       continue;
     }
 
+    // Фильтр качества: пост уже «настоялся» (прошёл возрастной гейт), значит score
+    // достоверен. Ниже порога — «работа без отклика», не грузим (без download/upload).
+    if (post.score < DANBOORU_MIN_SCORE) {
+      await markDanbooruPostSkipped(post.id, `low_score:${post.score}`);
+      await advanceDanbooruCursor(post.id);
+      skippedLowScore++;
+      continue;
+    }
+
     const result = await processPost(post, storageChatId, storageThreadId, api);
     if (result === "imported") imported++;
     else if (result === "skipped") skipped++;
@@ -232,12 +259,14 @@ async function tick(api: Api): Promise<void> {
 
   logger.info({
     lastPostId,
-    newLastPostId: posts[posts.length - 1].id,
+    newLastPostId: advancedTo,
     total: posts.length,
     imported,
     skipped,
+    skippedLowScore,
     failed,
     alreadyDone,
+    stoppedYoung, // true → упёрлись в ещё «не настоявшиеся» посты, ждём следующего тика
     durationMs: Date.now() - t0,
   }, "Danbooru tick completed");
 }
