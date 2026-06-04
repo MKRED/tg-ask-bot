@@ -1,8 +1,8 @@
-import { analyzeImage, GeminiBlockedError } from "../../ai/gemini.js";
+import { analyzeImage, GeminiBlockedError } from "../../ai/gemini/index.js";
 import { analyzeImageOllama } from "../../ai/ollama.js";
 import { retry } from "../../utils/retry.js";
 import logger from "../../logger.js";
-import type { ImageAnalysis } from "../../types/index.js";
+import type { ImageAnalysis } from "../../ai/gemini/index.js";
 
 export interface PhotoAnalysisResult {
   imageAnalysis: ImageAnalysis | null;

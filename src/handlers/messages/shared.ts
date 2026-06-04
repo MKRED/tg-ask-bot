@@ -1,4 +1,4 @@
-import { generateTextEmbedding } from "../../ai/gemini.js";
+import { generateTextEmbedding } from "../../ai/gemini/index.js";
 import { findSimilarImages } from "../../db/savedImages.js";
 import { getUserNsfwEnabled } from "../../db/users.js";
 import logger from "../../logger.js";

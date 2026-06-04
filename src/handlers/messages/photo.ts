@@ -1,5 +1,5 @@
 import type { Bot } from "grammy";
-import { analyzeImage, generateImageEmbedding, GeminiBlockedError } from "../../ai/gemini.js";
+import { analyzeImage, generateImageEmbedding, GeminiBlockedError } from "../../ai/gemini/index.js";
 import { analyzeImageOllama } from "../../ai/ollama.js";
 import { askOpenRouter } from "../../ai/openrouter.js";
 import { extractFacts } from "../../ai/extractFacts.js";

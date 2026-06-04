@@ -3,9 +3,9 @@ import { bot } from "../bot.js";
 import { config } from "../config.js";
 import { db } from "../db/index.js";
 import { savedImages } from "../db/schema.js";
-import { analyzeImage, GeminiBlockedError } from "../ai/gemini.js";
+import { analyzeImage, GeminiBlockedError } from "../ai/gemini/index.js";
 import { analyzeImageOllama } from "../ai/ollama.js";
-import type { ImageAnalysis } from "../types/index.js";
+import type { ImageAnalysis } from "../ai/gemini/index.js";
 
 // Диагностика промпта: берёт картинку из saved_images по id, прогоняет её ЗАНОВО
 // через текущий промпт (Gemini → Ollama при блокировке, как в проде) и печатает

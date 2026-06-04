@@ -21,12 +21,18 @@ yarn drizzle-kit migrate   # apply migrations to DB
 
 ```
 src/
-  index.ts               — entry point, bot init, graceful shutdown
+  index.ts               — entry point, bot init, graceful shutdown (thin: register handlers + start workers/sources)
   bot.ts                 — grammY bot instance
   config.ts              — env vars (requireEnv for mandatory, process.env for optional)
   logger.ts              — pino logger (daily rolling, pino-pretty in TTY)
   ai/
-    gemini.ts            — Gemini API: analyzeImage(), generateTextEmbedding(), generateImageEmbedding(), generateImageEmbeddingFromBuffer(), GeminiBlockedError
+    gemini/              — Gemini API client (folder: split by concern)
+      index.ts           — barrel: public API (analyzeImage, generate*Embedding*, GeminiBlockedError, ImageAnalysis)
+      client.ts          — shared: GEMINI_MODEL, EMBEDDING_MODEL, EMBEDDING_DIMS, API_URL, embeddingUrl(), proxyAgent()
+      analyze.ts         — analyzeImage() + BLOCKING_FINISH_REASONS
+      embeddings.ts      — generateTextEmbedding(), generateImageEmbedding(), generateImageEmbeddingFromBuffer()
+      errors.ts          — GeminiBlockedError
+      types.ts           — ImageAnalysis interface (co-located with gemini)
     openrouter.ts        — OpenRouter chat: askOpenRouter(), clearHistory(), addToHistory(), parseResponse()
     extractFacts.ts      — LLM fact extraction from conversation history
     ollama.ts            — Ollama fallback: analyzeImageOllama() (used when Gemini blocks an image)
@@ -48,9 +54,17 @@ src/
     groupMessages.ts     — appendToBuffer(), getBuffer(), pruneBuffer() (sliding window, GROUP_BUFFER_SIZE rows)
     groupIngestImages.ts — durable ingest queue: enqueueIngestImage(), claimQueued(), markDone(), routeToOllama(), deferRetry(), markFailed(), getPendingBatch(), deleteBatchByIds(), markReportedByIds(), getStaleIngestThreads()
   handlers/
-    commands.ts          — /start, /help, /clear, /facts, /account, /botstart, /botingest, /botstop, /setdanboorustorage
+    commands/            — bot commands (folder: one file per command group)
+      index.ts           — registerCommands() — aggregates the register* functions below
+      shared.ts          — ensureGroupAdmin()
+      basic.ts           — /start, /help, unknown-command catch-all (registered last)
+      account.ts         — /clear, /facts, /account + buildAccountText/nsfwKeyboard + account:toggle_nsfw callback
+      group.ts           — /botstart, /botingest, /botstop
+      danbooru.ts        — /setdanboorustorage
     myChatMember.ts      — bot join/leave group events → upsertGroupChat()
-    inlineQuery.ts       — registerInlineQueryHandler() — inline image search (any chat): text → embedding (cached) → findSimilarImages → shuffled cached-photo results; empty query → findRandomImages (browse)
+    inline/              — inline image search (folder)
+      index.ts           — registerInlineQueryHandler() — inline image search (any chat): text → embedding (cached) → findSimilarImages → shuffled cached-photo results; empty query → findRandomImages (browse)
+      constants.ts       — INLINE_MIN_QUERY_LEN, INLINE_POOL_SIZE, INLINE_SHOWN_COUNT, INLINE_BROWSE_COUNT, INLINE_CACHE_TIME
     messages/
       index.ts           — registerMessageHandlers()
       text.ts            — DM text handler (private chats only)
@@ -59,43 +73,56 @@ src/
       groupPhoto.ts      — group photo handler (group/supergroup)
       shared.ts          — processing Set<string>, processingKey(), sendMessage(), sendResponseWithImage()
       photoAnalysis.ts   — analyzePhotoWithFallback() (Gemini→Ollama, never throws) — used by DM/chat-mode photo only
-      ingestWorker.ts    — startIngestWorker() — background two-lane worker draining the ingest queue (Gemini parallel, Ollama serial + circuit breaker)
-      ingestDigest.ts    — scheduleDigest(), checkStaleDigests() (5-min debounce digest for ingest threads)
+      ingest/            — ingest queue pipeline (folder)
+        worker.ts        — startIngestWorker() — background two-lane worker draining the ingest queue (Gemini parallel, Ollama serial + circuit breaker). Both lanes share module state → kept in one file.
+        shared.ts        — pure helpers: errMsg(), isOllamaDown(), resolveFileUrl(), saveAnalysisToImages()
+        digest.ts        — scheduleDigest(), checkStaleDigests() (5-min debounce digest for ingest threads)
+        constants.ts     — INGEST_TICK_MS, GEMINI_INGEST_CONCURRENCY, OLLAMA_INGEST_CONCURRENCY, OLLAMA_MAX_ATTEMPTS, OLLAMA_BACKOFF_*, OLLAMA_HEALTH_TIMEOUT_MS
     forgetMenu/
       index.ts           — sendForgetMenu(), registerForgetCallbacks(), startMenuCleanupScheduler()
       render.ts          — buildMenuText(), buildMenuKeyboard(), buildConfirmKeyboard(), disableMenu()
+  sources/               — external content importers (one folder per source; add reddit etc. here)
+    index.ts             — startSources(api) — starts every source's worker (called once from index.ts)
+    danbooru/
+      worker.ts          — startDanbooruWorker(api), initDanbooruCursorIfNeeded() — background chronological crawler loop + age/score filters + cursor
+      processPost.ts     — processPost() + ProcessResult — per-post pipeline (download → embed → upload → save)
+      client.ts          — Danbooru HTTP API: fetchPosts(), downloadDanbooruImage(), fetchLatestPostId(), fetchPostById() (Basic Auth)
+      transform.ts       — danbooruPostUrl(), extToMimeType(), isNsfwRating(), splitTags(), buildDescriptionAndTags()
+      types.ts           — DanbooruApiPost interface
+      constants.ts       — DANBOORU_BASE_URL, DANBOORU_TICK_MS, DANBOORU_BATCH_SIZE, DANBOORU_UPLOAD_DELAY_MS, DANBOORU_SENDER_ID, DANBOORU_ALLOWED_EXTS, DANBOORU_MIN_AGE_MS, DANBOORU_MIN_SCORE
   prompts/
     conversation.ts      — SYSTEM_PROMPT + buildSystemPrompt(facts) (DM)
     factExtraction.ts    — EXTRACTION_SYSTEM_PROMPT
     imageAnalysis.ts     — DESCRIPTION_PROMPT + RESPONSE_SCHEMA
     groupConversation.ts — GROUP_SYSTEM_PROMPT + buildGroupSystemPrompt(nsfwEnabled)
     groupDecision.ts     — GROUP_DECISION_PROMPT (JSON-only: should_respond true/false)
-  types/
+  types/                 — cross-cutting types only (feature types live with their feature)
     bot.types.ts         — BotResponse interface
-    gemini.types.ts      — ImageAnalysis interface
     index.ts             — barrel export
-  constants/
+  constants/             — cross-cutting constants only (feature constants live with their feature)
     ai.constants.ts      — LAST_EXCHANGES, IMAGE_MARKER
     db.constants.ts      — MAX_HISTORY_MESSAGES, MAX_STORED_MESSAGES, MAX_FACTS, GROUP_BUFFER_SIZE, GROUP_DECISION_MSGS, GROUP_FULL_CONTEXT_SIZE
     ui.constants.ts      — MAX_MSG_LENGTH, FACTS_PER_PAGE, CLEANUP_INTERVAL_MS, GROUP_MSG_TIMEZONE
-    ingest.constants.ts  — INGEST_TICK_MS, GEMINI_INGEST_CONCURRENCY, OLLAMA_INGEST_CONCURRENCY, OLLAMA_MAX_ATTEMPTS, OLLAMA_BACKOFF_*, OLLAMA_HEALTH_TIMEOUT_MS
-    inline.constants.ts  — INLINE_MIN_QUERY_LEN, INLINE_POOL_SIZE, INLINE_SHOWN_COUNT, INLINE_BROWSE_COUNT, INLINE_CACHE_TIME
-    danbooru.constants.ts — DANBOORU_TICK_MS, DANBOORU_BATCH_SIZE, DANBOORU_UPLOAD_DELAY_MS, DANBOORU_SENDER_ID, DANBOORU_ALLOWED_EXTS, DANBOORU_MIN_AGE_MS, DANBOORU_MIN_SCORE
     index.ts             — barrel export
   strings/
     replies.ts           — FACT_SAVED_REPLIES, BUSY_REPLIES, randomBusyReply(), randomFactSavedReply()
   utils/
     retry.ts             — retry(fn, attempts, delayMs, label, shouldRetry?)
-    http.ts              — httpsPost(), downloadFile() (used by ai/gemini.ts)
+    http.ts              — httpsPost(), downloadFile() (used by ai/gemini/)
     groupFormat.ts       — formatTimestamp(), formatBufferForLLM(), extractForwardInfo()
-  danbooru/
-    api.ts               — Danbooru API client: fetchPosts(), downloadDanbooruImage(), fetchLatestPostId(), extToMimeType(), isNsfwRating(), buildDescriptionAndTags()
-    worker.ts            — startDanbooruWorker(api), initDanbooruCursorIfNeeded() — background chronological crawler
   scripts/
     reembedImages.ts      — one-time migration: re-embed ALL saved_images with the current image-embedding pipeline (run with the bot stopped). Uses GEMINI_API_KEY_FREE first (≤900/day, ~85/min), falls back to the paid key for the rest
     retryFailedIngest.ts  — reset failed ingest rows back to "pending" so the running worker re-processes them
     retryFailedDanbooru.ts — re-process failed danbooru_posts (status='failed'): re-fetches each by ID (fetchPostById) and runs it through the same processPost. Needs storage chat configured; safe to run with the bot up. Optional arg = max rows per run
 ```
+
+## Структура и размер файлов — mandatory
+Чтобы файлы не разрастались и проект оставался читаемым/масштабируемым:
+- **Один файл — одна обязанность.** «Главный» файл (entry-point, register-агрегатор, цикл воркера) держим тонким, вынося реализацию в соседние файлы той же папки.
+- **Ориентир ~100–150 строк.** Файл за ~150 строк — сигнал, что в нём несколько обязанностей; разбей, если они отделимы. Это эвристика читаемости, **не** жёсткий лимит: когезивные single-responsibility файлы (данные/строки как `strings/replies.ts`, одиночный хендлер, DAO одной таблицы как `db/groupIngestImages.ts`) не дробим ради цифры.
+- **Папка-фича вместо россыпи.** Когда сущность вырастает из одного файла — заводим папку с `index.ts`-агрегатором (barrel или `registerXxx`) и соседними файлами-реализациями. Образцы: `handlers/commands/`, `handlers/messages/ingest/`, `ai/gemini/`, `sources/danbooru/`.
+- **Со-локация констант/типов.** Фичевые константы/типы лежат рядом с использованием (`<feature>/constants.ts`, `<feature>/types.ts`), а не в общем barrel. В `src/constants/`/`src/types/` оставляем только кросс-каттинговое (`db`, `ui`, `ai`-общие, `BotResponse`).
+- **Новый внешний источник контента** (reddit и т.п.) — только папкой в `src/sources/<name>/` по шаблону danbooru (`worker.ts` + `processPost.ts` + `client.ts` + `transform.ts` + `types.ts` + `constants.ts`); экспортирует функцию запуска воркера, которая подключается одной строкой в `sources/index.ts`.
 
 ## Code conventions
 
@@ -147,7 +174,7 @@ Still avoid restating what the code obviously does — focus on the **why**, not
 | Telegram | Bot API | `BOT_TOKEN` |
 | Danbooru | Image crawling (optional) | `DANBOORU_LOGIN`, `DANBOORU_API_KEY` |
 
-- Gemini image analysis model: `gemini-3.1-flash-lite` (in `gemini.ts`)
+- Gemini image analysis model: `gemini-3.1-flash-lite` (in `ai/gemini/client.ts`)
 - Gemini embedding model: `gemini-embedding-2` (natively multimodal — embeds text and images into one shared space), produces **3072-dim** vectors
 - OpenRouter model: configured via `OPENROUTER_MODEL` env var (default: `deepseek/deepseek-v4-flash`)
 
@@ -157,7 +184,7 @@ Still avoid restating what the code obviously does — focus on the **why**, not
 - Cosine similarity search: `ORDER BY embedding <=> ${vec}::vector`
 - Storage-side embedding: `generateImageEmbedding(fileUrl, analysisText)` — embeds the **image itself + analysis text** (`description + " " + [...moodTags, ...contentTags].join(" ")`) into one multimodal vector. The image carries visual/compositional signal; the text anchors named entities (franchises/characters from grounding). The user's caption is **not** embedded (may be off-topic).
 - Query-side embedding: `generateTextEmbedding(queryText)` — the user's search text. Lives in the same multimodal space, so text→image search matches directly.
-- Both default to 3072 dims; `gemini.ts` guards against any other length (same-dim ≠ same-space — a foreign vector would otherwise enter the column silently).
+- Both default to 3072 dims; `ai/gemini/embeddings.ts` guards against any other length (same-dim ≠ same-space — a foreign vector would otherwise enter the column silently).
 
 ## Keeping docs up to date
 
@@ -219,13 +246,13 @@ Bot response is saved to buffer inside `askGroupChat()` as fire-and-forget (DB f
 - `groupText.ts`: returns immediately — text in an ingest thread is ignored entirely (not even buffered).
 - `/botstop` clears the thread row regardless of mode. Re-running `/botstart` or `/botingest` switches the mode in place.
 
-**Ingest worker — two lanes** (`ingestWorker.ts`, started in `index.ts` via `startIngestWorker(api)`): each lane is a recursive-`setTimeout` loop (no overlap between ticks) that claims `pending` rows of its `route` via `claimQueued()` (`WHERE analyzed_by='pending' AND route=? AND next_attempt_at<=now() ORDER BY next_attempt_at`). An in-memory `Set<id>` per lane prevents double-claim at runtime; on restart any non-terminal row is still `pending` → re-processed (at-least-once).
+**Ingest worker — two lanes** (`handlers/messages/ingest/worker.ts`, started in `index.ts` via `startIngestWorker(api)`): each lane is a recursive-`setTimeout` loop (no overlap between ticks) that claims `pending` rows of its `route` via `claimQueued()` (`WHERE analyzed_by='pending' AND route=? AND next_attempt_at<=now() ORDER BY next_attempt_at`). An in-memory `Set<id>` per lane prevents double-claim at runtime; on restart any non-terminal row is still `pending` → re-processed (at-least-once).
 - **Gemini lane**: up to `GEMINI_INGEST_CONCURRENCY` (3) in parallel. Success → `markDone(gemini)` + `saveImage` (fire-and-forget) + `scheduleDigest`. Block/any error → `routeToOllama()` (sets `route='ollama'`, resets `attempts`; not a failure).
 - **Ollama lane**: strictly serial (`OLLAMA_INGEST_CONCURRENCY=1`; plus the internal semaphore in `ai/ollama.ts`). On failure: `attempts+1`; if it's a "down"-type error (`connection refused` / `model runner` / `fetch failed` / timeout) → trip the **circuit breaker** (`ollamaDown=true`); `deferRetry()` with exponential backoff `min(OLLAMA_BACKOFF_CAP_MS, BASE·2^(n-1))` (pushes the row to the back of the queue — poison images don't block the lane). After `OLLAMA_MAX_ATTEMPTS` (6) → `markFailed("failed")`.
 - **Circuit breaker**: while `ollamaDown`, the Ollama lane stops claiming rows and instead health-pings `GET {ollamaUrl}/api/version` each tick; it resumes the instant Ollama answers. This is how "wait until Ollama comes back up" works **without burning rows' attempt budgets** during an outage (serial loop = only 1 row ever in flight, so an outage burns at most one attempt before the breaker pauses everything).
 - `getFile` happens **in the worker** right before download (handler stores only `fileId`) — avoids Telegram `file_path` URL expiry for backlogged rows. A getFile failure → `markFailed("telegram_error")`.
 
-**Ingest digest** — after 5 min of no newly *finalized* images, `ingestDigest.ts` sends a summary:
+**Ingest digest** — after 5 min of no newly *finalized* images, `handlers/messages/ingest/digest.ts` sends a summary:
 - `scheduleDigest(chatId, threadId, api)` — resets a per-thread 5-min debounce timer (in-memory `Map`). Called by the **worker** after each row reaches a terminal state, so the window starts from the last *processed* image (a long Ollama outage delays the digest until the backlog drains — it never fires a partial summary).
 - `sendDigest()` — **guard first**: if `countPending() > 0` (rows still `pending`, e.g. waiting out an Ollama outage), it re-arms the timer and returns without sending — so the summary is never partial. Otherwise reads terminal, not-yet-reported rows (`getPendingBatch`: `analyzed_by != 'pending' AND reported_at IS NULL`), captures IDs before `sendMessage`, then **deletes only successful rows** (`gemini`/`ollama`) and **marks `failed`/`telegram_error` rows with `reported_at`** (kept in the table with `last_error` for manual inspection/retry — see `scripts/retryFailedIngest.ts`).
 - The digest reports processing-time stats from `processed_at`/`processing_ms` (wall-clock span + avg sec/image + total analysis time).
@@ -235,7 +262,7 @@ Bot response is saved to buffer inside `askGroupChat()` as fire-and-forget (DB f
 
 **Reply-to-bot bypass** — if `ctx.message.reply_to_message?.from?.id === ctx.me.id`, skip decision LLM and respond immediately. Log with `logger.info` for visibility.
 
-**Inline image search** (`inlineQuery.ts`, registered in `index.ts`) — `@bot <query>` in any chat searches the saved-images DB:
+**Inline image search** (`handlers/inline/index.ts`, registered in `index.ts`) — `@bot <query>` in any chat searches the saved-images DB:
 1. **Requires `/setinline` at BotFather** — without it the bot receives no `inline_query` updates at all (no error, just silence). `inline_query` is in the default getUpdates `allowed_updates`, so `run(bot)` (no filter) gets it; if an explicit `allowed_updates` list is ever added, include `inline_query`.
 2. Normalize the query (trim + collapse whitespace + lowercase + slice 255) — used as both the embedding input and the cache key, so casing/spacing variants share a vector.
 3. Query `< INLINE_MIN_QUERY_LEN` → **browse**: `findRandomImages(nsfw, INLINE_BROWSE_COUNT)` (no embedding call). Otherwise → resolve embedding: `getCachedEmbedding()` → on miss `generateTextEmbedding()` + `cacheEmbedding()` (fire-and-forget); then `findSimilarImages(embedding, nsfw, INLINE_POOL_SIZE)`, **shuffle**, take `INLINE_SHOWN_COUNT` (same phrase → fresh subset each time, stays in the relevant pool — no relevance threshold yet).
@@ -245,7 +272,7 @@ Bot response is saved to buffer inside `askGroupChat()` as fire-and-forget (DB f
 
 `search_embeddings` table — global cache (vector of a phrase is user-independent; NSFW filtering happens at search time). Looked up by exact `query_text` (btree unique), so **no vector index needed**.
 
-**Danbooru import** (`danbooru/worker.ts`, started in `index.ts` via `startDanbooruWorker(api)`) — хронологически тянет новые посты и добавляет их в `saved_images` (после чего они доступны в inline-поиске). Опциональный: если `DANBOORU_LOGIN`/`DANBOORU_API_KEY` не заданы, воркер не запускается.
+**Danbooru import** (`sources/danbooru/`, started in `index.ts` via `startSources(api)` → `startDanbooruWorker(api)`; per-post pipeline в `processPost.ts`) — хронологически тянет новые посты и добавляет их в `saved_images` (после чего они доступны в inline-поиске). Опциональный: если `DANBOORU_LOGIN`/`DANBOORU_API_KEY` не заданы, воркер не запускается.
 - Требует одноразовой настройки: `/setdanboorustorage [start_id]` в целевом чате/группе/супергруппе (в форум-группе — **в нужной теме**: команда запоминает `message_thread_id`, и `sendPhoto` постит именно туда, а не в General; `storageThreadId=0` = General/без тем). Бот будет загружать туда картинки (`sendPhoto`) чтобы получить Telegram `file_id`. Без этого воркер ждёт каждый тик. Поведение курсора: явный `start_id` → стартуем с него; **повторный вызов без аргумента, когда стейт уже есть → продолжаем с текущего курсора** (меняется только `storageChatId`, бэклог не теряется); первый запуск без аргумента → курсор = самый свежий пост (история не тянется).
 - Порядок обработки поста: **download → embed → Telegram upload → saveImage**. Embed идёт до upload: зря не тратим Telegram flood-бюджет на картинки, которые Gemini не может проэмбеддить. `generateImageEmbeddingFromBuffer` принимает буфер напрямую — одна загрузка на оба шага. Транзиентные шаги (download/embed/save) обёрнуты в `retry()`; flood-лимиты `sendPhoto` (429) гасит транспортный `autoRetry()` в `bot.ts`.
 - **Фильтр качества (возраст + score)**: грузим не всё подряд, а только «настоявшиеся» популярные посты. Два гейта в начале цикла `tick()` (батч отсортирован по возрастанию id = возрастанию свежести):

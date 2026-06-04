@@ -3,7 +3,7 @@ import { config } from "../config.js";
 import logger from "../logger.js";
 import { downloadFile } from "../utils/http.js";
 import { DESCRIPTION_PROMPT, RESPONSE_SCHEMA } from "../prompts/imageAnalysis.js";
-import type { ImageAnalysis } from "../types/index.js";
+import type { ImageAnalysis } from "./gemini/index.js";
 
 // Ollama — локальная модель, плохо переносит параллельные запросы: при пике
 // (все картинки отброшены Gemini одновременно) runner падает с OOM/crash.

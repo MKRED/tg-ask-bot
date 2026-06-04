@@ -1,5 +1,5 @@
 import type { Bot } from "grammy";
-import { generateImageEmbedding } from "../../ai/gemini.js";
+import { generateImageEmbedding } from "../../ai/gemini/index.js";
 import { askGroupChat } from "../../ai/groupChat.js";
 import { checkShouldRespond } from "../../ai/groupDecision.js";
 import { getGroupNsfwEnabled } from "../../db/groupChats.js";
@@ -34,7 +34,7 @@ export function registerGroupPhotoHandler(bot: Bot): void {
     upsertUser(ctx.from).catch((err) => logger.warn({ chatId, err }, "upsertUser failed"));
 
     // Режим «пожиратель»: только кладём картинку в durable-очередь и уходим.
-    // Скачивание (getFile) и анализ (Gemini→Ollama) выполняет фоновый воркер (ingestWorker.ts),
+    // Скачивание (getFile) и анализ (Gemini→Ollama) выполняет фоновый воркер (ingest/worker.ts),
     // чтобы темп обработки задавали мы, а не поток сообщений Telegram.
     if (mode === "ingest") {
       const photo = ctx.message.photo.at(-1)!;

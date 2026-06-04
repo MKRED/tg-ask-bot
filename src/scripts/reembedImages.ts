@@ -3,7 +3,7 @@ import { bot } from "../bot.js";
 import { config } from "../config.js";
 import { db } from "../db/index.js";
 import { savedImages } from "../db/schema.js";
-import { generateImageEmbedding } from "../ai/gemini.js";
+import { generateImageEmbedding } from "../ai/gemini/index.js";
 
 // Миграция эмбеддингов на gemini-embedding-2 (картинка + текст анализа).
 //

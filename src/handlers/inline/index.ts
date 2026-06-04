@@ -1,20 +1,20 @@
 import type { Bot } from "grammy";
 import type { InlineQueryResultCachedPhoto } from "grammy/types";
-import { generateTextEmbedding } from "../ai/gemini.js";
-import { getCachedEmbedding, cacheEmbedding } from "../db/searchEmbeddings.js";
-import { findSimilarImages, findRandomImages } from "../db/savedImages.js";
-import { getDanbooruIdsByImageIds } from "../db/danbooruPosts.js";
-import { danbooruPostUrl } from "../danbooru/api.js";
-import { getUserNsfwEnabled } from "../db/users.js";
+import { generateTextEmbedding } from "../../ai/gemini/index.js";
+import { getCachedEmbedding, cacheEmbedding } from "../../db/searchEmbeddings.js";
+import { findSimilarImages, findRandomImages } from "../../db/savedImages.js";
+import { getDanbooruIdsByImageIds } from "../../db/danbooruPosts.js";
+import { danbooruPostUrl } from "../../sources/danbooru/transform.js";
+import { getUserNsfwEnabled } from "../../db/users.js";
 import {
   INLINE_MIN_QUERY_LEN,
   INLINE_POOL_SIZE,
   INLINE_SHOWN_COUNT,
   INLINE_BROWSE_COUNT,
   INLINE_CACHE_TIME,
-} from "../constants/index.js";
-import type { SavedImage } from "../db/schema.js";
-import logger from "../logger.js";
+} from "./constants.js";
+import type { SavedImage } from "../../db/schema.js";
+import logger from "../../logger.js";
 
 // Нормализация ключа кэша: схлопываем пробелы, в нижний регистр, обрезаем до длины
 // столбца query_text (varchar 255). По этому же тексту и эмбеддим — варианты регистра

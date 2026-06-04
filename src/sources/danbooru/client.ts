@@ -1,4 +1,4 @@
-// Клиент Danbooru API.
+// HTTP-клиент Danbooru API.
 // Документация: https://danbooru.donmai.us/wiki_pages/api
 // Аутентификация: HTTP Basic Auth (login:api_key).
 // Пагинация курсором: page=a{id} возвращает посты с id > N в порядке возрастания —
@@ -8,39 +8,12 @@
 // заблокирован. Используем Node's https + HttpsProxyAgent как везде в проекте.
 import https from "https";
 import { HttpsProxyAgent } from "https-proxy-agent";
-import { config } from "../config.js";
+import { config } from "../../config.js";
+import { DANBOORU_BASE_URL } from "./constants.js";
+import type { DanbooruApiPost } from "./types.js";
 
-const BASE_URL = "https://danbooru.donmai.us";
 // Danbooru требует указывать User-Agent для API-клиентов; пустой UA может дать 403.
 const USER_AGENT = "tg-ask-bot/1.0 (private Telegram bot)";
-
-export interface DanbooruApiPost {
-  id: number;
-  created_at: string;
-  rating: string; // 'g' | 's' | 'q' | 'e'
-  file_ext: string;
-  file_size: number;
-  md5: string | null;
-  // Оригинал — может быть огромным (до 20MB+); используем large_file_url (sample, ~720px)
-  file_url: string | null;
-  large_file_url: string | null;
-  preview_file_url: string | null;
-  tag_string: string;
-  tag_string_general: string;
-  tag_string_character: string;
-  tag_string_copyright: string;
-  tag_string_artist: string;
-  score: number;
-  is_deleted: boolean;
-  is_pending: boolean;
-  is_banned: boolean;
-}
-
-// URL страницы поста на Danbooru — строится из id (отдельной колонки не держим,
-// danbooru_id уже есть в danbooru_posts). Используется для inline-кнопки «Источник».
-export function danbooruPostUrl(id: number): string {
-  return `${BASE_URL}/posts/${id}`;
-}
 
 function authHeader(login: string, apiKey: string): string {
   return `Basic ${Buffer.from(`${login}:${apiKey}`).toString("base64")}`;
@@ -118,7 +91,7 @@ export async function fetchPosts(
   login: string,
   apiKey: string,
 ): Promise<DanbooruApiPost[]> {
-  const url = new URL(`${BASE_URL}/posts.json`);
+  const url = new URL(`${DANBOORU_BASE_URL}/posts.json`);
   url.searchParams.set("page", `a${afterId}`);
   url.searchParams.set("limit", String(Math.min(limit, 100)));
   return httpsGetJson(url.toString(), login, apiKey) as Promise<DanbooruApiPost[]>;
@@ -128,7 +101,7 @@ export async function fetchPosts(
 // они остаются позади курсора, перезапросить их по курсору нельзя).
 // Возвращает null, если пост не найден (404) или удалён.
 export async function fetchPostById(id: number, login: string, apiKey: string): Promise<DanbooruApiPost | null> {
-  const url = `${BASE_URL}/posts/${id}.json`;
+  const url = `${DANBOORU_BASE_URL}/posts/${id}.json`;
   try {
     return await httpsGetJson(url, login, apiKey) as DanbooruApiPost;
   } catch (err) {
@@ -140,78 +113,8 @@ export async function fetchPostById(id: number, login: string, apiKey: string): 
 
 // Получить самый свежий пост (нужен для инициализации курсора когда start_id не задан).
 export async function fetchLatestPostId(login: string, apiKey: string): Promise<number> {
-  const url = new URL(`${BASE_URL}/posts.json`);
+  const url = new URL(`${DANBOORU_BASE_URL}/posts.json`);
   url.searchParams.set("limit", "1");
   const posts = await httpsGetJson(url.toString(), login, apiKey) as DanbooruApiPost[];
   return posts[0]?.id ?? 0;
-}
-
-// Конвертация расширения файла в MIME-тип для Gemini embedding.
-export function extToMimeType(ext: string): string {
-  const map: Record<string, string> = {
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    webp: "image/webp",
-  };
-  return map[ext.toLowerCase()] ?? "image/jpeg";
-}
-
-// Определяем NSFW по рейтингу Danbooru.
-// g (general) и s (sensitive) — безопасный/слегка suggestive контент.
-// q (questionable) и e (explicit) — NSFW.
-export function isNsfwRating(rating: string): boolean {
-  return rating === "q" || rating === "e";
-}
-
-// Разбиваем пробел-разделённые строки тегов на массивы.
-// Danbooru не возвращает массивы нативно — только строки вида "tag1 tag2 tag3".
-export function splitTags(tagString: string): string[] {
-  return tagString.split(" ").filter(Boolean);
-}
-
-// Danbooru-теги в snake_case (long_hair, hatsune_miku, fate/grand_order). Для текста
-// эмбеддинга и для saved_images.content_tags переводим в естественную форму («long hair»):
-// поисковый запрос пользователя — обычный текст, а не booru-тег, и пробельная форма
-// заметно лучше стыкуется с ним в общем мультимодальном пространстве. Сырая (underscore)
-// форма сохраняется отдельно в danbooru_posts.*_tags для аудита/точного маппинга.
-function normalizeTag(tag: string): string {
-  return tag.replace(/_/g, " ");
-}
-
-// Строим текстовое описание и теги из метаданных Danbooru.
-// Возвращаемые *Tags-массивы — СЫРЫЕ (для danbooru_posts.*_tags).
-// description + contentTags — НОРМАЛИЗОВАННЫЕ (для эмбеддинга и saved_images.content_tags).
-// Персонаж, франшиза (copyright) и автор (artist) — основные якоря поиска, поэтому они
-// и в описании, и в начале contentTags (чтобы обрезка по лимиту их не выбросила).
-export function buildDescriptionAndTags(post: DanbooruApiPost): {
-  description: string;
-  contentTags: string[];
-  generalTags: string[];
-  characterTags: string[];
-  copyrightTags: string[];
-  artistTags: string[];
-} {
-  const generalTags = splitTags(post.tag_string_general);
-  const characterTags = splitTags(post.tag_string_character);
-  const copyrightTags = splitTags(post.tag_string_copyright);
-  const artistTags = splitTags(post.tag_string_artist);
-
-  const parts: string[] = [];
-  if (characterTags.length) parts.push(`Characters: ${characterTags.slice(0, 5).map(normalizeTag).join(", ")}`);
-  if (copyrightTags.length) parts.push(`From: ${copyrightTags.slice(0, 5).map(normalizeTag).join(", ")}`);
-  if (artistTags.length) parts.push(`Art by: ${artistTags.slice(0, 3).map(normalizeTag).join(", ")}`);
-  if (generalTags.length) parts.push(generalTags.slice(0, 30).map(normalizeTag).join(" "));
-  const description = parts.join(". ") || `Danbooru post ${post.id}`;
-
-  // contentTags для saved_images: сущности (персонаж/франшиза/автор) идут первыми,
-  // затем general; всё нормализовано и дедуплицировано, обрезка с запасом.
-  const contentTags = [...new Set([
-    ...characterTags.map(normalizeTag),
-    ...copyrightTags.map(normalizeTag),
-    ...artistTags.map(normalizeTag),
-    ...generalTags.map(normalizeTag),
-  ])].slice(0, 60);
-
-  return { description, contentTags, generalTags, characterTags, copyrightTags, artistTags };
 }

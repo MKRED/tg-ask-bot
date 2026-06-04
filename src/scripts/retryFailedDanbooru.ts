@@ -3,9 +3,9 @@ import { config } from "../config.js";
 import { bot } from "../bot.js";
 import { getDanbooruState } from "../db/danbooruState.js";
 import { getFailedDanbooruPosts, markDanbooruPostSkipped } from "../db/danbooruPosts.js";
-import { fetchPostById } from "../danbooru/api.js";
-import { processPost } from "../danbooru/worker.js";
-import { DANBOORU_UPLOAD_DELAY_MS } from "../constants/index.js";
+import { fetchPostById } from "../sources/danbooru/client.js";
+import { processPost } from "../sources/danbooru/processPost.js";
+import { DANBOORU_UPLOAD_DELAY_MS } from "../sources/danbooru/constants.js";
 import logger from "../logger.js";
 
 // Переобрабатывает упавшие Danbooru-посты (status='failed').

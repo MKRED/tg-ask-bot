@@ -1,13 +1,13 @@
 import { run } from "@grammyjs/runner";
 import { bot } from "./bot.js";
-import { registerCommands } from "./handlers/commands.js";
+import { registerCommands } from "./handlers/commands/index.js";
 import { registerMessageHandlers } from "./handlers/messages/index.js";
 import { registerForgetCallbacks, startMenuCleanupScheduler } from "./handlers/forgetMenu/index.js";
 import { registerMyChatMemberHandler } from "./handlers/myChatMember.js";
-import { registerInlineQueryHandler } from "./handlers/inlineQuery.js";
-import { checkStaleDigests } from "./handlers/messages/ingestDigest.js";
-import { startIngestWorker } from "./handlers/messages/ingestWorker.js";
-import { startDanbooruWorker } from "./danbooru/worker.js";
+import { registerInlineQueryHandler } from "./handlers/inline/index.js";
+import { checkStaleDigests } from "./handlers/messages/ingest/digest.js";
+import { startIngestWorker } from "./handlers/messages/ingest/worker.js";
+import { startSources } from "./sources/index.js";
 import logger from "./logger.js";
 
 registerMyChatMemberHandler(bot);
@@ -27,7 +27,7 @@ startMenuCleanupScheduler(bot);
 // он смотрит только на терминальные неотправленные строки, а pending добьёт воркер.
 startIngestWorker(bot.api);
 checkStaleDigests(bot.api).catch((err) => logger.error({ err }, "Startup stale digest check failed"));
-startDanbooruWorker(bot.api);
+startSources(bot.api);
 
 run(bot);
 logger.info("Bot is running...");

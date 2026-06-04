@@ -1,3 +1,6 @@
+// Базовый адрес Danbooru — общий для HTTP-клиента (client.ts) и построения ссылок на посты (transform.ts).
+export const DANBOORU_BASE_URL = "https://danbooru.donmai.us";
+
 // Интервал между тиками воркера (мс)
 export const DANBOORU_TICK_MS = 15_000;
 // Количество постов Danbooru за один тик (лимит API — 100, берём поменьше)

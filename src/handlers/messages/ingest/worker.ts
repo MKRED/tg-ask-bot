@@ -1,18 +1,18 @@
 import type { Api } from "grammy";
-import { analyzeImage, generateImageEmbedding, GeminiBlockedError } from "../../ai/gemini.js";
-import { analyzeImageOllama } from "../../ai/ollama.js";
+import { analyzeImage, GeminiBlockedError } from "../../../ai/gemini/index.js";
+import { analyzeImageOllama } from "../../../ai/ollama.js";
 import {
   claimQueued,
   markDone,
   routeToOllama,
   deferRetry,
   markFailed,
-} from "../../db/groupIngestImages.js";
-import { saveImage } from "../../db/savedImages.js";
-import type { GroupIngestImage } from "../../db/schema.js";
-import { scheduleDigest } from "./ingestDigest.js";
-import { retry } from "../../utils/retry.js";
-import { config } from "../../config.js";
+} from "../../../db/groupIngestImages.js";
+import type { GroupIngestImage } from "../../../db/schema.js";
+import { scheduleDigest } from "./digest.js";
+import { errMsg, isOllamaDown, resolveFileUrl, saveAnalysisToImages } from "./shared.js";
+import { retry } from "../../../utils/retry.js";
+import { config } from "../../../config.js";
 import {
   INGEST_TICK_MS,
   GEMINI_INGEST_CONCURRENCY,
@@ -21,15 +21,18 @@ import {
   OLLAMA_BACKOFF_BASE_MS,
   OLLAMA_BACKOFF_CAP_MS,
   OLLAMA_HEALTH_TIMEOUT_MS,
-} from "../../constants/index.js";
-import logger from "../../logger.js";
-import type { ImageAnalysis } from "../../types/index.js";
+} from "./constants.js";
+import logger from "../../../logger.js";
 
 // Фоновый воркер ingest-очереди. Обработчик сообщения только кладёт строку "pending"
 // в group_ingest_images; разбирает очередь этот воркер — двумя независимыми полосами:
 //   • Gemini — облачный API, до GEMINI_INGEST_CONCURRENCY параллельно;
 //   • Ollama — локальная модель, строго по одной (защищена семафором в ai/ollama.ts).
 // Сериализация Ollama-полосы структурно исключает лавину connection-refused при пике картинок.
+//
+// ВАЖНО: обе полосы держат общее мутабельное состояние модуля (geminiInFlight, ollamaInFlight,
+// ollamaDown), поэтому они живут в одном файле — выносить полосы в отдельные модули нельзя
+// без аккуратной шарированной структуры состояния.
 
 // Какие строки сейчас обрабатываются — защита от повторного захвата одной строки.
 const geminiInFlight = new Set<number>();
@@ -38,52 +41,6 @@ const ollamaInFlight = new Set<number>();
 // Circuit breaker Ollama: при "down"-ошибке полоса перестаёт брать строки и каждый тик
 // пингует сервер, возобновляя работу как только он ответит (см. ollamaTick).
 let ollamaDown = false;
-
-function errMsg(err: unknown): string {
-  const msg = err instanceof Error ? err.message : String(err);
-  return msg.slice(0, 500);
-}
-
-// Ошибки, означающие что сервер Ollama недоступен / runner упал (а не битый ответ на конкретной картинке).
-function isOllamaDown(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  return /connection refused|model runner|fetch failed|ECONNREFUSED|socket hang up|terminated|Ollama HTTP 5|aborted/i.test(msg);
-}
-
-async function resolveFileUrl(api: Api, fileId: string): Promise<string> {
-  const file = await retry(() => api.getFile(fileId), 3, 1500, "getFile-ingest");
-  return `https://api.telegram.org/file/bot${config.botToken}/${file.file_path}`;
-}
-
-// Сохранение в saved_images — ради чего анализ и делается. Fire-and-forget: сбой не должен ломать конвейер.
-function saveAnalysisToImages(row: GroupIngestImage, analysis: ImageAnalysis, fileUrl: string, logCtx: Record<string, unknown>): void {
-  if (!row.fileId || !row.senderUserId) return;
-  const fileId = row.fileId;
-  const senderUserId = row.senderUserId;
-  (async () => {
-    let embedding: number[];
-    try {
-      // Эмбеддим картинку + текст анализа (см. generateImageEmbedding).
-      const analysisText = `${analysis.description} ${[...analysis.moodTags, ...analysis.contentTags].join(" ")}`;
-      embedding = await generateImageEmbedding(fileUrl, analysisText);
-    } catch (err) {
-      logger.warn({ ...logCtx, err }, "Embedding failed, image not saved to saved_images");
-      return;
-    }
-    saveImage({
-      fileId,
-      senderUserId,
-      description: analysis.description,
-      caption: row.caption ?? null,
-      moodTags: analysis.moodTags,
-      contentTags: analysis.contentTags,
-      isNsfw: analysis.isNsfw,
-      embedding,
-    })
-      .then(() => logger.info({ ...logCtx }, "Ingest image saved to saved_images"))
-      .catch((err) => logger.warn({ ...logCtx, err }, "Failed to save ingest image to saved_images"));
-  })().catch((err) => logger.warn({ ...logCtx, err }, "saveAnalysisToImages background task crashed"));
-}
 
 // --- Gemini-полоса ---
 
