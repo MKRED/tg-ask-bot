@@ -34,8 +34,12 @@ export function saveAnalysisToImages(row: GroupIngestImage, analysis: ImageAnaly
     let embedding: number[];
     try {
       // Эмбеддим картинку + текст анализа (см. generateImageEmbedding).
+      // Обёрнуто в retry (как danbooru-путь): транзиентные сбои (ECONNRESET, socket hang up,
+      // 429 RESOURCE_EXHAUSTED от общей с danbooru квоты Gemini) иначе молча теряли картинку.
+      // 6 попыток с базой 4с (паузы до 60с суммарно) пересиживают минутное окно rate-лимита;
+      // это безопасно — функция fire-and-forget (вызывается без await), Gemini-лейн не блокируется.
       const analysisText = `${analysis.description} ${[...analysis.moodTags, ...analysis.contentTags].join(" ")}`;
-      embedding = await generateImageEmbedding(fileUrl, analysisText);
+      embedding = await retry(() => generateImageEmbedding(fileUrl, analysisText), 6, 4000, "Ingest embed");
     } catch (err) {
       logger.warn({ ...logCtx, err }, "Embedding failed, image not saved to saved_images");
       return;

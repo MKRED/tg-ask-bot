@@ -47,6 +47,7 @@ async function main() {
 
   let imported = 0;
   let gone = 0;
+  let skipped = 0;
   let stillFailed = 0;
 
   for (const row of failed) {
@@ -61,13 +62,17 @@ async function main() {
       }
 
       const result = await processPost(post, storageChatId, storageThreadId, bot.api);
+      // skipped/failed уже зафиксированы внутри processPost. skipped (напр. битые размеры —
+      // PHOTO_INVALID_DIMENSIONS) больше не вернётся в getFailedDanbooruPosts, failed вернётся.
       if (result === "imported") {
         imported++;
         console.log(`  #${row.danbooruId}: imported ✅`);
+      } else if (result === "skipped") {
+        skipped++;
+        console.log(`  #${row.danbooruId}: skipped (не вернётся в retry)`);
       } else {
-        // skipped/failed уже зафиксированы внутри processPost
         stillFailed++;
-        console.log(`  #${row.danbooruId}: ${result}`);
+        console.log(`  #${row.danbooruId}: failed`);
       }
     } catch (err) {
       // Сетевая ошибка fetchPostById и т.п. — строка остаётся failed, попробуем в следующий раз
@@ -80,7 +85,7 @@ async function main() {
     await sleep(DANBOORU_UPLOAD_DELAY_MS);
   }
 
-  console.log(`\nDone. imported=${imported}, gone=${gone}, still_failed=${stillFailed}`);
+  console.log(`\nDone. imported=${imported}, gone=${gone}, skipped=${skipped}, still_failed=${stillFailed}`);
   process.exit(0);
 }
 

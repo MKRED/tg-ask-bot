@@ -19,8 +19,15 @@ function authHeader(login: string, apiKey: string): string {
   return `Basic ${Buffer.from(`${login}:${apiKey}`).toString("base64")}`;
 }
 
+// Один общий агент на весь модуль (а не новый на каждый запрос): keepAlive переиспользует
+// TCP/TLS-соединения к прокси, что важно под параллельной нагрузкой воркера (DANBOORU_CONCURRENCY
+// одновременных download). Без keepAlive каждый запрос делал бы полный TLS-handshake.
+const sharedAgent: HttpsProxyAgent<string> | undefined = config.proxyUrl
+  ? new HttpsProxyAgent(config.proxyUrl, { keepAlive: true })
+  : undefined;
+
 function agent(): HttpsProxyAgent<string> | undefined {
-  return config.proxyUrl ? new HttpsProxyAgent(config.proxyUrl) : undefined;
+  return sharedAgent;
 }
 
 // GET-запрос через https-модуль (с поддержкой прокси) → парсим JSON.
