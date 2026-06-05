@@ -14,7 +14,7 @@ export const DANBOORU_BATCH_SIZE = 80;
 // через один прокси. autoRetry в bot.ts гасит редкие 429 от sendPhoto; если 429 станут
 // частыми в логах — значит упёрлись в per-chat лимит Telegram, тогда снижаем или шардим
 // загрузку по нескольким storage-чатам.
-export const DANBOORU_CONCURRENCY = 4;
+export const DANBOORU_CONCURRENCY = 2;
 // Размер пачки для отправки картинок альбомом (sendMediaGroup) — чтобы не спамить в чат
 // по одной картинке (каждая = отдельное сообщение + уведомление). Альбом из N фото = одно
 // уведомление. Telegram допускает media group из 2–10; берём 5 как баланс «меньше спама /
