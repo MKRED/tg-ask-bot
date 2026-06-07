@@ -63,7 +63,7 @@ src/
       basic.ts           — /start, /help, unknown-command catch-all (registered last)
       account.ts         — /clear, /facts, /account + buildAccountText/nsfwKeyboard + account:toggle_nsfw callback
       group.ts           — /botstart, /botingest, /botstop
-      danbooru.ts        — /setdanboorustorage
+      danbooru.ts        — /setdanboorustorage, /stopdanboorustorage
     myChatMember.ts      — bot join/leave group events → upsertGroupChat()
     inline/              — inline image search (folder)
       index.ts           — registerInlineQueryHandler() — inline image search (any chat): text → embedding (cached) → findSimilarImages → paginated cached-photo results (closest→farthest, next_offset); empty query → findRandomImages (browse)

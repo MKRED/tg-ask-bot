@@ -1,6 +1,6 @@
 // Команда настройки Danbooru-хранилища: /setdanboorustorage [start_id].
 import { Bot } from "grammy";
-import { setDanbooruStorageChat, getDanbooruState } from "../../db/danbooruState.js";
+import { setDanbooruStorageChat, getDanbooruState, clearDanbooruStorageChat } from "../../db/danbooruState.js";
 import { initDanbooruCursorIfNeeded } from "../../sources/danbooru/worker.js";
 import { ensureGroupAdmin } from "./shared.js";
 import logger from "../../logger.js";
@@ -80,6 +80,35 @@ export function registerDanbooruCommands(bot: Bot): void {
     return ctx.reply(
       `✅ Этот чат установлен как хранилище Danbooru-картинок.\n` +
       `Импорт начнётся ${startMsg}.`,
+    );
+  });
+
+  // Ставит Danbooru-выгрузку на паузу: обнуляет storageChatId, воркер перестаёт грузить.
+  // Курсор (lastPostId) сохраняется — повторный /setdanboorustorage без аргумента
+  // продолжит с той же позиции, бэклог не теряется.
+  bot.command("stopdanboorustorage", async (ctx) => {
+    const chatType = ctx.chat?.type;
+
+    // В группах/супергруппах требуем права администратора (как и у /setdanboorustorage)
+    if (chatType === "group" || chatType === "supergroup") {
+      if (!(await ensureGroupAdmin(ctx, "stopdanboorustorage"))) return;
+    }
+
+    const userId = ctx.from?.id;
+    const t0 = Date.now();
+
+    const state = await getDanbooruState();
+    const paused = await clearDanbooruStorageChat();
+    logger.info({ userId, paused, durationMs: Date.now() - t0 }, "Danbooru storage chat stop requested");
+
+    if (!paused) {
+      return ctx.reply("ℹ️ Danbooru-выгрузка и так не активна — останавливать нечего.");
+    }
+
+    return ctx.reply(
+      `⏸️ Danbooru-выгрузка остановлена.\n` +
+      `Позиция сохранена (#${state?.lastPostId ?? 0}). ` +
+      `Чтобы продолжить с того же места — выполните /setdanboorustorage без аргумента в нужном чате.`,
     );
   });
 }

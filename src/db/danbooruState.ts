@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { db } from "./index.js";
 import { danbooruIngestState } from "./schema.js";
 import type { DanbooruIngestState } from "./schema.js";
@@ -29,6 +30,22 @@ export async function setDanbooruStorageChat(chatId: number, threadId: number, s
       set: { storageChatId: chatId, storageThreadId: threadId, ...(startPostId !== undefined ? { lastPostId: startPostId } : {}), updatedAt: new Date() },
     });
   logger.info({ chatId, threadId, startPostId, durationMs: Date.now() - t0 }, "Danbooru storage chat configured");
+}
+
+// Ставит выгрузку на паузу: обнуляет storageChatId. Воркер увидит null и будет
+// молча простаивать каждый тик (см. tick() в worker.ts), но lastPostId сохраняется —
+// повторный /setdanboorustorage без аргумента продолжит с той же позиции, бэклог не теряется.
+// Возвращает false, если паузить нечего (стейта нет или выгрузка уже остановлена).
+export async function clearDanbooruStorageChat(): Promise<boolean> {
+  const t0 = Date.now();
+  const current = await getDanbooruState();
+  if (!current?.storageChatId) return false;
+  await db
+    .update(danbooruIngestState)
+    .set({ storageChatId: null, updatedAt: new Date() })
+    .where(eq(danbooruIngestState.id, 1));
+  logger.info({ durationMs: Date.now() - t0, lastPostId: current.lastPostId }, "Danbooru storage chat cleared (upload paused)");
+  return true;
 }
 
 // Сдвигает курсор после успешной (или намеренно пропущенной) обработки поста.

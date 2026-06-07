@@ -18,7 +18,8 @@ export function registerBasicCommands(bot: Bot): void {
       "/botingest — режим «пожиратель»: бот молча собирает картинки в базу\n" +
       "/botstop — выключить бота в текущем разделе\n\n" +
       "<b>Danbooru-импорт:</b>\n" +
-      "/setdanboorustorage [start_id] — установить текущий чат как хранилище Danbooru-картинок",
+      "/setdanboorustorage [start_id] — установить текущий чат как хранилище Danbooru-картинок\n" +
+      "/stopdanboorustorage — остановить выгрузку (позиция сохраняется)",
       { parse_mode: "HTML" }
     )
   );
