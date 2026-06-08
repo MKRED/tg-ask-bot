@@ -9,7 +9,7 @@ const rollOptions = {
   options: {
     file: "./logs/app.log",
     frequency: "daily",
-    limit: { count: 7 },
+    limit: { count: 7, removeOtherLogFiles: true },
     dateFormat: "yyyy-MM-dd",
   },
 };
